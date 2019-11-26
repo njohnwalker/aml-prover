@@ -1,0 +1,170 @@
+in ml-app.maude
+
+view Pattern from TRIV to ML-APP is
+    sort Elt to Pattern .
+endv
+
+fmod NAT-TO-STRING is
+    pr NAT .
+    pr STRING .
+
+    var N : Nat .
+    op string : Nat -> String .
+
+    eq string(0) = char(48) .
+    eq string(N) =
+      if N < 9
+        then char(48 + N)
+        else string(N quo 10) + char(48 + (N rem 10))
+      fi .
+endfm
+    
+fmod ML-GOAL is including ML-APP .
+    sort PatMap .
+    op mtPM : -> PatMap [ctor] .
+    op [_:_] : NzNat Pattern -> PatMap [ctor] .
+    op _^_ : PatMap PatMap -> PatMap [ctor assoc id: mtPM] . 
+
+    sort Goal .
+    op _|-_ : PatMap PatMap -> Goal [ctor] .
+    
+    sort GoalMap .
+    op mtGM : -> GoalMap [ctor] .
+    op [_:_] : Nat Goal -> GoalMap [ctor] .
+    op _;_ : GoalMap GoalMap -> GoalMap [ctor assoc id: mtGM] .
+endfm
+
+mod ML-GOAL-RULES is including ML-GOAL .
+
+    vars N M : Nat .
+    vars P P' : Pattern .
+    vars PM PM' : PatMap .
+
+    *** Pattern Map rules
+    rl [uniqueVal] : [N : P] ^ [M : P] => [N : P] .
+
+    crl [sortPM] : [N : P] ^ [M : P'] => [M : P'] ^ [N : P]
+      if N > M .
+
+    rl [injectiveKeyPM] : [N : P] ^ [N : P'] => [N : P'] ^ [s N : P] .
+
+    crl [surjectiveKeyPM] : [N : P] ^ [M : P'] => [N : P] ^ [s N : P']
+      if M > s N .
+
+    vars G G' : Goal .
+    *** Proof Goal Map rules
+    crl [sortGM] : [N : G] ; [M : G'] => [M : G'] ; [N : G]
+      if N > M .
+
+    rl [injectiveKeyGM] : [N : G] ; [N : G'] => [N : G'] ; [s N : G] .
+
+    crl [surjectiveKeyGM] : [N : G] ; [M : G'] => [N : G] ; [s N : G']
+      if M > s N .
+
+endm
+
+*** fmod ML-TACTIC is
+***     protecting ML-GOAL .
+***     protecting BOOL .
+***     sorts Tactic MLRule .
+***     op _on_ : MLRule Nat ->  Tactic [ctor] .
+***     op noop : -> Tactic [ctor] .
+    
+***     ops axiom implyL implyR : -> MLRule [ctor] .
+***     op assume_ : Pattern -> MLRule [ctor] .
+
+***     ops exInstL_ exInstR_ : Qid -> MLRule [ctor] .
+***     ops exQuant__ : Qid Pattern -> MLRule [ctor] .
+
+***     ***
+***     var Ax : Pattern .
+***     *** Tactic Rewrite rules
+***     rl [axiom] : < axiom on N # [ N : PS ^ Ax |- Ax ^ PS' ] ; GM  # nil >
+***       => < noop # GM # 'Proved metaPrettyPrint(['ML-GOAL], upTerm(Ax), none) > .
+
+***     *** Assumption
+***     var N' : Nat .
+***     var P : Pattern .
+***     crl [assume] : < assume P on N # [ N : PS |- PS' ] ; GM # nil >
+***       => < noop # [N : PS ^ P |- PS' ] ; [N' : PS |- P ^ PS'] ; GM #  nil >
+***       if N' := freshGoalIdx(N, GM) .
+
+***     *** Implication
+***     vars Hyp Conc : Pattern .
+***     rl [implyR] : < implyR on N # [ N : PS |- (Hyp --> Conc) ^ PS' ] ; GM # nil >
+***       => < noop # [ N : PS ^ Hyp |- Conc ^ PS' ] ; GM # nil > .
+
+***     crl [implyL] : < implyL on N # [ N : PS ^ (Hyp --> Conc) |- PS' ] ; GM # nil >
+***       => < noop # [ N : PS |- Hyp ^ PS'  ] ; [ N' : Conc ^ PS |-  PS' ] ; GM # nil >
+***       if N' := freshGoalIdx(N, GM) .
+
+***     *** Existential quantification 
+***     rl [exQuant] : < exQuant Q P on N # [ N : PS |- PS' ] ; GM # nil >
+***       => < noop # [ N : PS |- PS' ^ P --> (exists\ (incVars P)[ # 1 / Q]) ] ; GM  # nil > .
+
+***     *** Existential instantiation
+***     crl [exInstL] : < exInstL Q on N # [ N : PS ^ ((exists\ Hyp) --> Conc) |- PS' ] ; GM # nil >
+***       => < noop # [ N
+***           : PS
+***           ^ ((exists\ Hyp) --> Conc)
+***           ^ ((replace $ 1 with Q in Hyp) --> Conc)
+***           |- PS'
+***           ] ; GM  # nil >
+***       if Q isFreeIn Conc .
+    
+***     crl [exInstR] : < exInstR Q on N # [ N : PS |- PS' ^ ((exists\ Hyp) --> Conc) ] ; GM # nil >
+***       => < noop # [ N : PS
+***           |- PS'
+***           ^ ((exists\ Hyp) --> Conc)
+***           ^ ((replace $ 1 with Q in Hyp) --> Conc)
+***           ] ; GM  # nil >
+***       if Q isFreeIn Conc .
+
+    
+*** endfm
+    
+*** mod APP-ML-PROVER is
+***     including ML-TACTIC .
+***     protecting META-LEVEL .
+***     including LOOP-MODE .
+
+***     op <_#_#_> : Tactic GoalMap QidList -> State .
+
+***     vars N M : Nat .
+***     var Q : Qid .
+
+***     vars PS PS' : PatSet .
+***     op init : PatSet PatSet -> System .
+***     eq init(PS, PS') = [ nil, < noop # [0 : PS |- PS' ] # nil >, 'success '\n] .
+
+***     var GM : GoalMap .
+***     vars QIN QOUT QOUT'  : QidList .
+***     var T : ResultPair? .
+***     var Tac : Tactic .
+
+***     *** Loop mode IO rules
+***     var Term : Term . var Type : Type . 
+***     crl [inputCorrect] : [ QIN, < noop # GM # nil >, QOUT ]
+***       => [ nil, < downTerm(Term, noop) # GM # nil >, 'success '\n ]
+***       if QIN =/= nil /\ {Term,Type} := metaParse(['ML-TACTIC-GRAMMAR], QIN, 'Tactic ) .
+
+***     var T : ResultPair .
+***     crl [inputAmbiguous] : [ QIN, < noop # GM # nil >, QOUT ]
+***       => [ nil, < downTerm(Term, noop) # GM # nil >,
+***           'Ambiguous 'parse. 'Choosing 'first. '\n)
+***         ]
+***       if QIN =/= nil /\
+***          ambiguity({Term, Type}, T) := metaParse(['ML-TACTIC-GRAMMAR], QIN, 'Tactic ) .
+
+***     crl [inputFail] : [ QIN, < noop # GM # nil >, QOUT ]
+***       => [ nil, < noop # GM # nil >,
+***           'ERROR 'on 'input: QIN '\n
+***           'Parsing 'failed 'at 'column qid(string(N))
+***         ]
+***       if QIN =/= nil /\ noParse(N) := metaParse(['ML-TACTIC-GRAMMAR], QIN, 'Tactic ) .
+
+***     crl [out] : [ QIN, < Tac # GM # QOUT' >, QOUT ] =>
+***                 [ QIN, < Tac # GM # nil >, QOUT QOUT' ]
+***       if QOUT' =/= nil . 
+
+*** endm

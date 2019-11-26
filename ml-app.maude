@@ -1,0 +1,199 @@
+fmod VARIABLES is
+    protecting NAT .
+    protecting QID .
+    sorts EVar SVar Var .
+    subsort Qid < EVar SVar < Var .
+    op #_ : Nat -> EVar .
+    op $_ : Nat -> SVar .
+endfm
+
+fmod ML-APP-CORE is including VARIABLES .
+*** terse de-bruijn indexed ML Patterns
+
+    sorts Symbol Pattern .
+    subsort Var Symbol < Pattern .
+    
+    *** Pattern Application
+    op _@_  : Pattern Pattern -> Pattern [ctor prec 10 gather (E e)] .
+
+    *** Patten Implication
+    op _-->_  : Pattern Pattern -> Pattern [ctor] .
+
+    *** Bottom
+    op bot : -> Pattern [ctor] .
+
+    *** Universal quantification
+    op exists\_ : Pattern -> Pattern [ctor prec 100] .
+
+    *** least fixpoint
+    op mu\_ : Pattern -> Pattern [ctor prec 100] .
+
+    *** Substitution
+    op _[_/_] : Pattern Pattern Var -> Pattern .
+endfm
+
+fmod ML-APP-SUGAR is including ML-APP-CORE .
+*** Module Defining Syntactic sugar for ML-APP and desugaring equations
+    
+    vars P Q : Pattern .
+    var x : EVar .
+    var X : SVar . 
+
+    *** Top
+    op top : -> Pattern .
+    eq top = exists\ # 1 .
+    
+    *** Not
+    op ~_ : Pattern -> Pattern .
+    eq ~ P = P --> bot .
+
+    *** Or, And
+    ops _\/_ _/\_ : Pattern Pattern -> Pattern [assoc comm] .
+    eq P \/ Q = (~ P) --> Q .
+    eq P /\ Q = ~((~ P) \/ (~ Q)) . 
+
+
+    *** If-and-only-if
+    ops _<-->_ : Pattern Pattern -> Pattern [assoc comm idem] .
+    eq P <--> Q = (P --> Q) /\ (Q --> P) .
+    
+    *** Quantifiers
+    ops exists_._ forall_._ : EVar Pattern -> Pattern .
+    eq forall x . P = ~ (exists x . ~ P ) .
+    
+    *** greatest fixpoint
+    ops nu_._ mu_._ : EVar Pattern -> Pattern .
+    *** desugaring occurs in de-bruijn conversion
+    *** as it involves substitution
+endfm
+
+fmod DE-BRUIJN is including ML-APP-SUGAR .
+    *** Convert Desugared ML-APP to nameless variable representation
+    
+    var N : Nat .
+    vars V V' V'' : Var .
+    var S : Symbol .
+    vars P P' : Pattern .
+
+    **************************************
+    *** toDeBruijn Conversion Function ***
+    op toDeBruijn_ : Pattern -> Pattern .
+    
+    *** Terminals
+    eq toDeBruijn bot = bot .
+    eq toDeBruijn S = S .
+    eq toDeBruijn V = V .  *** don't convert free vars
+    
+    *** Connectives
+    eq toDeBruijn P @ P' = (toDeBruijn P) @ (toDeBruijn P') .
+    eq toDeBruijn P --> P' = (toDeBruijn P) --> (toDeBruijn P') .
+    
+    *** Binders
+    eq toDeBruijn (exists V . P) =
+        exists\ (toDeBruijn (replace V with # 1 in P) level 1) .
+
+    eq toDeBruijn (mu V . P)  =
+        mu\ (toDeBruijn (replace V with $ 1 in P) level 1) .
+
+    eq toDeBruijn (nu V . P) =
+        (mu\ (toDeBruijn (replace V with $ 1 in P)
+            level 1 [~ $ 1 / $ 1]
+          )
+        ) --> bot .
+    
+    *****************************************
+    *** toDeBruijn_level_ helper function ***
+    op toDeBruijn_level_ : Pattern Nat -> Pattern .
+
+    *** Terminals
+    eq toDeBruijn bot level N = bot .
+    eq toDeBruijn S level N = S .
+    eq toDeBruijn V level N = V .  *** don't convert free vars
+    
+    *** Connectives
+    eq toDeBruijn P @ P' level N =
+        (toDeBruijn P level N) @ (toDeBruijn P' level N) .
+    
+    eq toDeBruijn P --> P' level N =
+        (toDeBruijn P  level N) --> (toDeBruijn P' level N) .
+    
+    *** Binders
+    eq toDeBruijn forall V . P level N =
+        exists\ (toDeBruijn (replace V with # s N  in P) level s N) .
+    
+    eq toDeBruijn mu V . P level N  =
+        mu\ (toDeBruijn (replace V with $ s N in P) level s N) .
+
+    eq toDeBruijn nu V . P level N =
+        (mu\ (toDeBruijn (replace V with $ s N in P)
+            level N + 1 [~ $ s N / $ s N]
+          )
+        ) --> bot .
+
+    ************************************************
+    *** Variable to Natural replacement function ***
+    op replace_with_in_ : Var Var Pattern -> Pattern .
+
+    *** Terminals
+    eq replace V with V' in bot = bot .
+    eq replace V with V' in S = S .
+    eq replace V with V' in V = V' .
+    eq replace V with V' in V'' = V'' [owise] .
+
+    *** Connectives
+    eq replace V with V' in (P @ P') =
+        (replace V with V' in P) @ (replace V with V' in P') .
+
+    eq replace V with V' in (P --> P') =
+        (replace V with V' in P) --> (replace V with V' in P') .
+
+    *** Binders
+    eq replace V with V' in forall V'' . P =
+        forall V'' . (replace V with V' in P) .
+
+    eq replace V with V' in mu V'' . P =
+        mu V'' . (replace V with V' in P) .
+endfm
+    
+fmod ML-SUBSTITUTION is including DE-BRUIJN .
+*** Module defining the substitution operation on Patterns
+    var S : Symbol .
+    var N : Nat .
+    var Q : Qid .
+    vars V V' : Var .
+    vars P P' P'' : Pattern .
+    
+    eq S[P / V] = S .
+    eq V[P / V] = P .
+    eq V'[P / V] = V' [owise] .
+
+    eq (P @ P')[P'' / V] = (P[P'' / V]) @ (P'[P'' / V]) .
+    
+    eq (P --> P')[P'' / V] = P[P'' / V] --> (P'[P'' / V]) .
+
+    eq (exists\ P)[P' / V] = exists\ P[P' / V] .
+    
+    eq (mu\ P)[P' / V] = mu\ P[P' / V] .
+
+    op incVars_ : Pattern -> Pattern .
+    eq incVars S = S .
+    eq incVars # N = # s N .
+    eq incVars $ N = $ s N .
+    eq incVars Q = Q .
+    eq incVars (P @ P') = (incVars P) @ (incVars P') .
+    eq incVars (P --> P') = (incVars P) --> (incVars P') .
+    eq incVars (exists\ P) = exists\ (incVars P) .
+    eq incVars (mu\ P) = mu\ (incVars P) .
+
+    op _isFreeIn_ : Var Pattern -> Bool .
+    eq Q isFreeIn V = V =/= Q .
+    eq Q isFreeIn S = true .
+    eq Q isFreeIn (P @ P') = (Q isFreeIn P) and (Q isFreeIn P') .
+    eq Q isFreeIn (P --> P') = (Q isFreeIn P) and (Q isFreeIn P') .
+    eq Q isFreeIn (exists\ P) = Q isFreeIn P .
+    eq Q isFreeIn (mu\ P) = Q isFreeIn P .
+    
+    
+endfm
+
+fmod ML-APP is including ML-SUBSTITUTION . endfm
