@@ -1,3 +1,5 @@
+in preludePrime.maude
+
 fmod VARIABLES is
     protecting NAT .
     protecting QID .
@@ -7,8 +9,8 @@ fmod VARIABLES is
     op $_ : Nat -> SVar .
 endfm
 
-fmod ML-APP-CORE is including VARIABLES .
-*** terse de-bruijn indexed ML Patterns
+fmod AML-CORE is including VARIABLES .
+*** terse de-bruijn indexed AML Patterns
 
     sorts Symbol Pattern .
     subsort Var Symbol < Pattern .
@@ -32,8 +34,8 @@ fmod ML-APP-CORE is including VARIABLES .
     op _[_/_] : Pattern Pattern Var -> Pattern .
 endfm
 
-fmod ML-APP-SUGAR is including ML-APP-CORE .
-*** Module Defining Syntactic sugar for ML-APP and desugaring equations
+fmod AML-SUGAR is including AML-CORE .
+*** Module Defining Syntactic sugar for AML and desugaring equations
     
     vars P Q : Pattern .
     var x : EVar .
@@ -67,8 +69,8 @@ fmod ML-APP-SUGAR is including ML-APP-CORE .
     *** as it involves substitution
 endfm
 
-fmod DE-BRUIJN is including ML-APP-SUGAR .
-    *** Convert Desugared ML-APP to nameless variable representation
+fmod DE-BRUIJN is including AML-SUGAR .
+    *** Convert Desugared AML to nameless variable representation
     
     var N : Nat .
     vars V V' V'' : Var .
@@ -155,7 +157,7 @@ fmod DE-BRUIJN is including ML-APP-SUGAR .
         mu V'' . (replace V with V' in P) .
 endfm
     
-fmod ML-SUBSTITUTION is including DE-BRUIJN .
+fmod AML-SUBSTITUTION is including DE-BRUIJN .
 *** Module defining the substitution operation on Patterns
     var S : Symbol .
     var N : Nat .
@@ -196,4 +198,4 @@ fmod ML-SUBSTITUTION is including DE-BRUIJN .
     
 endfm
 
-fmod ML-APP is including ML-SUBSTITUTION . endfm
+fmod AML is including AML-SUBSTITUTION . endfm

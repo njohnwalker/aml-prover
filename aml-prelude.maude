@@ -1,0 +1,70 @@
+in AML.maude
+
+*** AML Prelude
+fmod AML-DEFINEDNESS is including  AML-SUGAR .
+    *** Definedness Symbol
+    op def : -> Symbol [ctor] .
+
+    *** Axiom
+    op definedness : -> Pattern .
+    eq definedness = def @ 'x .
+
+    *** Definedness Sugar ***
+    vars P P' : Pattern .
+
+    *** Totality (definedness dual) Pattern Sugar .
+    op tot : Pattern -> Pattern .
+    eq tot(P:Pattern) = ~ (def @ ~ P:Pattern) .
+
+    *** Equality Pattern Sugar
+    op eq : Pattern Pattern -> Pattern .
+    eq eq(P, P') = tot(P <--> P') .
+
+    *** Set inclusion Pattern Sugar
+    op inc : Pattern Pattern -> Pattern .
+    eq inc(P, P') = tot(P --> P') .
+
+    *** Membership Pattern Sugar
+    op mem : EVar Pattern -> Pattern .
+    eq mem(X:EVar, P) = def @ (X:EVar /\ P) .
+
+    *** Axiom Helper
+    op functionalConstant : Symbol -> Pattern .
+    eq functionalConstant(S:Symbol) = exists\ eq(S:Symbol, # 1) .
+
+    *** Axiom
+    op functionalApplication : -> Pattern .
+    eq functionalApplication = exists\ eq('x @ 'y, # 1) .
+endfm
+
+view Pattern from TRIV to AML-CORE is
+    sort Elt to Pattern .
+endv
+
+fmod AML-MSA is including AML-DEFINEDNESS .
+    protecting NAT' .
+    
+    *** Inhabitants Symbol
+    op inh : -> Symbol [ctor] .
+
+    *** Axiom Helper
+    vars P : Pattern .
+    op nonEmptySort : Pattern -> Pattern .
+    eq nonEmptySort(P) = ~ eq(inh(P), bot) .
+
+    *** Axiom Helper
+    var PS : NeList{Pattern} .
+    op functionSort : NeList{Pattern} -> Pattern .
+    eq functionSort(PS) = function'(0, PS) .
+
+    var F : Symbol .
+    op functionSort' : Nat Symbol NeList{Pattern} -> Pattern .
+    eq functionSort'(N:Nat, F, P) = exists\ (mem(# 1, inh @ P) /\ eq(applyXVars(f, N), # 1)) .  
+    eq functionSort'(N:Nat, F, P PS) =
+        mem(qid("x"+string(N)), inh @ P) --> functionType'(s N, PS) .
+
+    op applyXVars : Symbol Nat -> Pattern .
+    eq applyXVars(F, 0) = F .
+    eq applyXVars(F, s N) = applyXVars(F, N) @ qid("x"+string(N)) .
+    
+endfm
