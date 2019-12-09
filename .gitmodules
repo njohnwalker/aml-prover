@@ -1,0 +1,4 @@
+[submodule "checker"]
+	path = checker
+	url = git@github.com:kframework/matching-logic-prover.git
+	branch = checker
