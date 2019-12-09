@@ -1,22 +1,22 @@
-in preludePrime.maude
-
+*** set show advisories off .
 fmod VARIABLES is
     protecting NAT .
     protecting QID .
     sorts EVar SVar Var .
-    subsort Qid < EVar SVar < Var .
-    op #_ : Nat -> EVar .
-    op $_ : Nat -> SVar .
+    subsort EVar SVar < Var .
+    op evar : Qid -> EVar [ctor] . 
+    op svar : Qid -> SVar [ctor] .
 endfm
 
 fmod AML-CORE is including VARIABLES .
-*** terse de-bruijn indexed AML Patterns
+    protecting EXT-BOOL .
+*** terse AML Patterns
 
     sorts Symbol Pattern .
     subsort Var Symbol < Pattern .
-    
+
     *** Pattern Application
-    op _@_  : Pattern Pattern -> Pattern [ctor prec 10 gather (E e)] .
+    op _@_  : Pattern Pattern -> Pattern [ctor gather (E e)] .
 
     *** Patten Implication
     op _-->_  : Pattern Pattern -> Pattern [ctor] .
@@ -25,26 +25,63 @@ fmod AML-CORE is including VARIABLES .
     op bot : -> Pattern [ctor] .
 
     *** Universal quantification
-    op exists\_ : Pattern -> Pattern [ctor prec 100] .
+    op exists_._ : EVar Pattern -> Pattern [ctor] .
 
     *** least fixpoint
-    op mu\_ : Pattern -> Pattern [ctor prec 100] .
+    op mu_._ : SVar Pattern ~> Pattern [ctor] .
+    *** condition on set variable fixpoints
+    cmb mu X . P : Pattern if positive(X,P) .
 
-    *** Substitution
-    op _[_/_] : Pattern Pattern Var -> Pattern .
+    var B : Bool . vars X X' : SVar . vars P Q : Pattern .  var S : Symbol .
+    op positive : SVar Pattern -> Bool .
+    eq positive(X,P) = $positive(true, X, P) .
+
+    op $positive : Bool SVar Pattern -> Bool .
+    eq $positive(B, X, bot) = true .
+    eq $positive(B, X, S) = true .
+    eq $positive(B, X, X) = B .
+    eq $positive(B, X, X') = true .
+    eq $positive(B, X, P @ Q) = $positive(B, X, P) and-then $positive(B, X, Q) .
+    eq $positive(B, X, P --> Q) = $positive(not B, X, P) and-then $positive(B, X, Q) .
+    eq $positive(B, X, exists (x:EVar) . P) = $positive(B, X, P) .
+    eq $positive(B, X, mu X . P) = true .
+    eq $positive(B, X, mu X' . P) = $positive(B, X, P) .
+    
 endfm
 
-fmod AML-SUGAR is including AML-CORE .
-*** Module Defining Syntactic sugar for AML and desugaring equations
+view Pattern from TRIV to AML-CORE is
+    sort Elt to Pattern .
+endv
+
+view Symbol from TRIV to AML-CORE is
+    sort Elt to Symbol .
+endv
+
+view Var from TRIV to AML-CORE is
+    sort Elt to Var .
+endv
+
+fmod PATTERN-SET is
+    pr SET{Pattern} * (sort NeSet{Pattern} to NePatternSet, sort Set{Pattern} to PatternSet) .
+endfm
     
-    vars P Q : Pattern .
+fmod AML is including AML-CORE .
+*** Add syntactic sugar and variable substitution
+*** to AML core representation
+
+    vars P Q P' P'' : Pattern .
     var x : EVar .
-    var X : SVar . 
+    vars X X' : SVar .
+    var S : Symbol .
+    vars V V' : Var .
+    
+    *************
+    *** Sugar ***
 
     *** Top
     op top : -> Pattern .
-    eq top = exists\ # 1 .
-    
+    eq top = exists evar('x) . evar('x) .
+
     *** Not
     op ~_ : Pattern -> Pattern .
     eq ~ P = P --> bot .
@@ -52,150 +89,80 @@ fmod AML-SUGAR is including AML-CORE .
     *** Or, And
     ops _\/_ _/\_ : Pattern Pattern -> Pattern [assoc comm] .
     eq P \/ Q = (~ P) --> Q .
-    eq P /\ Q = ~((~ P) \/ (~ Q)) . 
+    eq P /\ Q = ~((~ P) \/ (~ Q)) .
 
 
     *** If-and-only-if
-    ops _<-->_ : Pattern Pattern -> Pattern [assoc comm idem] .
+    op _<-->_ : Pattern Pattern -> Pattern [assoc comm] .
     eq P <--> Q = (P --> Q) /\ (Q --> P) .
-    
+
     *** Quantifiers
-    ops exists_._ forall_._ : EVar Pattern -> Pattern .
+    op forall_._ : EVar Pattern -> Pattern .
     eq forall x . P = ~ (exists x . ~ P ) .
-    
+
     *** greatest fixpoint
-    ops nu_._ mu_._ : EVar Pattern -> Pattern .
-    *** desugaring occurs in de-bruijn conversion
-    *** as it involves substitution
+    op nu_._ : EVar Pattern ~> Pattern .
+    eq nu X . P = ~ (mu X . ~ (P[~ X / X])) .
+
+    ********************
+    *** Substitution ***
+    op _[_/_] : Pattern Pattern Var ~> Pattern .
+
+    
+    op alphaCapture : -> [Pattern] .
+    *** Alpha capture substitution side-condition
+    ceq P [Psub / V] = alphaCapture
+      if alphaCaptures(V, P, Psub) .
+
+    eq bot[Psub / V] = bot .
+    eq S[Psub / V] = S .
+    eq V[Psub / V] = Psub .
+    eq V'[Psub / V] = V' .
+
+    eq (P @ P')[Psub / V] = (P[Psub / V]) @ (P'[Psub / V]) .
+
+    eq (P --> P')[Psub / V] = P[Psub / V] --> (P'[Psub / V]) .
+
+    eq (exists V . P)[Psub / V] = exists V . P .
+    eq (exists V' . P)[Psub / V] = exists V' . (P[Psub  / V]) .
+
+    eq (mu V . P)[Psub / V] = mu V . P .
+    eq (mu V' . P)[Psub / V] = mu V' . (P[Psub  / V]) .
+    
+    op isFreeIn : Var Pattern -> Bool .
+    eq isFreeIn(V, V) = true .
+    eq isFreeIn(V, V') = false .
+    eq isFreeIn(V, S) = false .
+    eq isFreeIn(V, P @ P') = isFreeIn(V, P) or-else isFreeIn(V, P') .
+    eq isFreeIn(V, P --> P') = isFreeIn(V, P) or-else isFreeIn(V, P') .
+    eq isFreeIn(V, exists V . P) = false .
+    eq isFreeIn(V, exists V' . P) = isFreeIn(V, P) .
+    eq isFreeIn(V, mu V . P) = false .
+    eq isFreeIn(V, mu V' . P) = isFreeIn(V, P) .
+
+    var B : Bool .
+    var Psub : Pattern .
+    var Vb : Var .
+    op alphaCaptures : Var Pattern Pattern -> Bool .
+    eq alphaCaptures(V, P, Psub) = $alphaCaptures(false, V, P, Psub) .
+    
+    op $alphaCaptures : Bool Var Pattern Pattern -> Bool .
+    eq $alphaCaptures(B, Vb, Vb, Psub) = B .
+    eq $alphaCaptures(B, Vb, V', Psub) = false .
+
+    eq $alphaCaptures(B, Vb, S, Psub) = false .
+
+    eq $alphaCaptures(B, Vb, P @ P', Psub) =
+        $alphaCaptures(B, Vb, P, Psub) and-then $alphaCaptures(B, Vb, P', Psub) .
+
+    eq $alphaCaptures(B, Vb, P --> P', Psub) =
+        $alphaCaptures(B, Vb, P, Psub) and-then $alphaCaptures(B, Vb, P', Psub) .
+
+    eq $alphaCaptures(B, Vb, exists Vb . P, Psub) = false .
+    eq $alphaCaptures(B, Vb, exists V' . P, Psub) =
+        $alphaCaptures(B or-else isFreeIn(V', Psub), Vb, P, Psub) .
+
+    eq $alphaCaptures(B, Vb, mu Vb . P, Psub) = false .
+    eq $alphaCaptures(B, Vb, mu V' . P, Psub) =
+        $alphaCaptures(B or-else isFreeIn(V', Psub), Vb, P, Psub) .
 endfm
-
-fmod DE-BRUIJN is including AML-SUGAR .
-    *** Convert Desugared AML to nameless variable representation
-    
-    var N : Nat .
-    vars V V' V'' : Var .
-    var S : Symbol .
-    vars P P' : Pattern .
-
-    **************************************
-    *** toDeBruijn Conversion Function ***
-    op toDeBruijn_ : Pattern -> Pattern .
-    
-    *** Terminals
-    eq toDeBruijn bot = bot .
-    eq toDeBruijn S = S .
-    eq toDeBruijn V = V .  *** don't convert free vars
-    
-    *** Connectives
-    eq toDeBruijn P @ P' = (toDeBruijn P) @ (toDeBruijn P') .
-    eq toDeBruijn P --> P' = (toDeBruijn P) --> (toDeBruijn P') .
-    
-    *** Binders
-    eq toDeBruijn (exists V . P) =
-        exists\ (toDeBruijn (replace V with # 1 in P) level 1) .
-
-    eq toDeBruijn (mu V . P)  =
-        mu\ (toDeBruijn (replace V with $ 1 in P) level 1) .
-
-    eq toDeBruijn (nu V . P) =
-        (mu\ (toDeBruijn (replace V with $ 1 in P)
-            level 1 [~ $ 1 / $ 1]
-          )
-        ) --> bot .
-    
-    *****************************************
-    *** toDeBruijn_level_ helper function ***
-    op toDeBruijn_level_ : Pattern Nat -> Pattern .
-
-    *** Terminals
-    eq toDeBruijn bot level N = bot .
-    eq toDeBruijn S level N = S .
-    eq toDeBruijn V level N = V .  *** don't convert free vars
-    
-    *** Connectives
-    eq toDeBruijn P @ P' level N =
-        (toDeBruijn P level N) @ (toDeBruijn P' level N) .
-    
-    eq toDeBruijn P --> P' level N =
-        (toDeBruijn P  level N) --> (toDeBruijn P' level N) .
-    
-    *** Binders
-    eq toDeBruijn forall V . P level N =
-        exists\ (toDeBruijn (replace V with # s N  in P) level s N) .
-    
-    eq toDeBruijn mu V . P level N  =
-        mu\ (toDeBruijn (replace V with $ s N in P) level s N) .
-
-    eq toDeBruijn nu V . P level N =
-        (mu\ (toDeBruijn (replace V with $ s N in P)
-            level N + 1 [~ $ s N / $ s N]
-          )
-        ) --> bot .
-
-    ************************************************
-    *** Variable to Natural replacement function ***
-    op replace_with_in_ : Var Var Pattern -> Pattern .
-
-    *** Terminals
-    eq replace V with V' in bot = bot .
-    eq replace V with V' in S = S .
-    eq replace V with V' in V = V' .
-    eq replace V with V' in V'' = V'' [owise] .
-
-    *** Connectives
-    eq replace V with V' in (P @ P') =
-        (replace V with V' in P) @ (replace V with V' in P') .
-
-    eq replace V with V' in (P --> P') =
-        (replace V with V' in P) --> (replace V with V' in P') .
-
-    *** Binders
-    eq replace V with V' in forall V'' . P =
-        forall V'' . (replace V with V' in P) .
-
-    eq replace V with V' in mu V'' . P =
-        mu V'' . (replace V with V' in P) .
-endfm
-    
-fmod AML-SUBSTITUTION is including DE-BRUIJN .
-*** Module defining the substitution operation on Patterns
-    var S : Symbol .
-    var N : Nat .
-    var Q : Qid .
-    vars V V' : Var .
-    vars P P' P'' : Pattern .
-    
-    eq S[P / V] = S .
-    eq V[P / V] = P .
-    eq V'[P / V] = V' [owise] .
-
-    eq (P @ P')[P'' / V] = (P[P'' / V]) @ (P'[P'' / V]) .
-    
-    eq (P --> P')[P'' / V] = P[P'' / V] --> (P'[P'' / V]) .
-
-    eq (exists\ P)[P' / V] = exists\ P[P' / V] .
-    
-    eq (mu\ P)[P' / V] = mu\ P[P' / V] .
-
-    op incVars_ : Pattern -> Pattern .
-    eq incVars S = S .
-    eq incVars # N = # s N .
-    eq incVars $ N = $ s N .
-    eq incVars Q = Q .
-    eq incVars (P @ P') = (incVars P) @ (incVars P') .
-    eq incVars (P --> P') = (incVars P) --> (incVars P') .
-    eq incVars (exists\ P) = exists\ (incVars P) .
-    eq incVars (mu\ P) = mu\ (incVars P) .
-
-    op _isFreeIn_ : Var Pattern -> Bool .
-    eq Q isFreeIn V = V =/= Q .
-    eq Q isFreeIn S = true .
-    eq Q isFreeIn (P @ P') = (Q isFreeIn P) and (Q isFreeIn P') .
-    eq Q isFreeIn (P --> P') = (Q isFreeIn P) and (Q isFreeIn P') .
-    eq Q isFreeIn (exists\ P) = Q isFreeIn P .
-    eq Q isFreeIn (mu\ P) = Q isFreeIn P .
-    
-    
-endfm
-
-fmod AML is including AML-SUBSTITUTION . endfm
