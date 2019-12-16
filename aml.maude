@@ -1,4 +1,3 @@
-*** set show advisories off .
 fmod VARIABLES is
     protecting NAT .
     protecting QID .

@@ -1,20 +1,10 @@
 in aml.maude
-
-fmod PRETTY is protecting META-LEVEL * ( op _`,_ to _~_ ) .
-    protecting NAT .
-
-    op pretty : Nat -> QidList .
-    eq pretty(N:Nat) = metaPrettyPrint(['NAT], upTerm(N:Nat), number) .
+in aml-pretty.maude
     
-    op prettyString : Nat -> String .
-    eq prettyString(N:Nat) = string(pretty(N:Nat)) .
-
-endfm
-
 *** AML Prelude
 fmod AML-DEFINEDNESS is including AML .
     pr PATTERN-SET .
-*** AML + Definedness Axioms
+*** Definedness Axioms
     op definednessAxioms : -> PatternSet .
     eq definednessAxioms = definedness , functionalConstant(def) , functionalApplication .
     
