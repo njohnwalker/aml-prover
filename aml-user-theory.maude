@@ -1,13 +1,25 @@
-in aml.maude
-in aml-pretty.maude
-    
-*** AML Prelude
+***(
+File Defining useful AML theories and
+the input theory for the prover
+
+  any Symbols in the theory must be declared as a constant operator:
+  op userSymbol : -> Symbol .
+
+  The default hypotheses for the prover are expected to be defined:
+  op userTheoryAxioms : -> PatternSet .
+  eq userTheoryAxioms = ... HERE ...
+  )
+
+
+****************************
+*** AML EXAMPLE THEORIES ***
+****************************
 fmod AML-DEFINEDNESS is including AML .
     pr PATTERN-SET .
 *** Definedness Axioms
     op definednessAxioms : -> PatternSet .
     eq definednessAxioms = definedness , functionalConstant(def) , functionalApplication .
-    
+
     *** Definedness Symbol
     op def : -> Symbol [ctor] .
 
@@ -31,8 +43,8 @@ fmod AML-DEFINEDNESS is including AML .
     eq inc(P, P') = tot(P --> P') .
 
     *** Membership Pattern Sugar
-    op mem : EVar Pattern -> Pattern .
-    eq mem(X:EVar, P) = def @ (X:EVar /\ P) .
+    op mem : Pattern Pattern -> Pattern .
+    eq mem(X:Pattern, P) = def @ (X:Pattern /\ P) .
 
     *** Axiom Helper
     op functionalConstant : Symbol -> Pattern .
@@ -50,23 +62,23 @@ fmod AML-MSA is including AML-DEFINEDNESS .
     *** Many-sorted-algebra axioms
     op manySortedAlgebraAxioms : -> PatternSet .
     eq manySortedAlgebraAxioms = definednessAxioms , functionalConstant(inh) .
-    
+
     *** Inhabitants Symbol
     op inh : -> Symbol [ctor] .
 
     *** Axiom Helper
     vars P : Pattern .
     op nonEmptySort : Pattern -> Pattern .
-    eq nonEmptySort(P) = ~ eq(inh(P), bot) .
+    eq nonEmptySort(P) = ~ eq(inh @ P, bot) .
 
     *** Sort Symbol
     op Sort : -> Symbol [ctor] .
 
     *** Axiom Helper
     var S : Symbol .
-    op isSort : Symbol -> Pattern . 
+    op isSort : Symbol -> Pattern .
     eq isSort(S) = mem(S, Sort) .
-    
+
     *** Axiom Helper
     var F : Symbol .
     var PS : NeList{Pattern} .
@@ -76,7 +88,7 @@ fmod AML-MSA is including AML-DEFINEDNESS .
     var N : Nat .
     op $functionSort : Nat Symbol NeList{Pattern} -> Pattern .
     eq $functionSort(N, F, P) = exists evar('y) .
-      (mem(evar('y), inh @ P) /\ eq(applyXVars(F, N), evar('y))) .  
+      (mem(evar('y), inh @ P) /\ eq(applyXVars(F, N), evar('y))) .
     eq $functionSort(N, F, P PS) =
         mem(evar(qid("x" + prettyString(N))), inh @ P) --> $functionSort(s N, F, PS) .
 
@@ -85,16 +97,15 @@ fmod AML-MSA is including AML-DEFINEDNESS .
     eq applyXVars(F, s N) = applyXVars(F, N) @ evar(qid("x" + prettyString(N))) .
 
     *** Sorted Quantification Sugar
-    var V : Var . 
+    var V : Var .
     ops exists_:_._ forall_:_._ : Var Symbol Pattern -> Pattern .
     eq exists V : S . P = exists V . (mem(V, inh @ S) /\  P) .
     eq forall V : S . P = forall V . (mem(V, inh @ S) --> P) .
-    
 endfm
 
 fmod AML-NAT0 is including AML-MSA .
 *** Natural Number theory sans induction axioms
-    op nat0Axioms : -> PatternSet .    
+    op nat0Axioms : -> PatternSet .
     eq nat0Axioms =
         *** previous axioms
         manySortedAlgebraAxioms,
@@ -103,26 +114,32 @@ fmod AML-NAT0 is including AML-MSA .
         *** Functional Symbols
         functionalConstant(succ), functionalConstant(plus), functionalConstant(mult),
         *** Function signatures
-        functionSort(0, Nat),
+        functionSort(z, Nat),
         functionSort(succ, Nat Nat),
         functionSort(plus, Nat Nat Nat),
         functionSort(mult, Nat Nat Nat),
         *** Function axioms
-        (forall evar('a) : Nat . eq(plus @ evar('a) @ 0, evar('a) )),
+        (forall evar('a) : Nat . eq(plus @ evar('a) @ z, evar('a) )),
         (forall evar('a) : Nat . forall evar('b) : Nat .
           eq(plus @ evar('a) @ (succ @ evar('b)), succ @ (plus @ evar('a) @ evar('b)))),
 
-        (forall evar('a) : Nat . eq(mult @ evar('a) @ 0, 0)),
+        (forall evar('a) : Nat . eq(mult @ evar('a) @ z, z)),
         (forall evar('a) : Nat . forall evar('b) : Nat .
           eq(mult @ evar('a) @ (succ @ evar('b)),
              plus @ evar('a) @ (mult @ evar('a) @ evar('b)))) .
 
     *** Sort Symbol
     op Nat : -> Symbol [ctor] .
-    
+
     *** Constant Symbol
-    op 0 : -> Symbol [ctor] .
-    
+    op z : -> Symbol [ctor] .
+
     *** Functional Constant Symbols
     ops succ plus mult : -> Symbol [ctor] .
 endfm
+
+mod AML-USER-THEORY is inc AML-NAT0 .
+    op / : -> Symbol .
+    op userTheoryAxioms : -> PatternSet .
+    eq userTheoryAxioms = nat0Axioms .
+endm
