@@ -1,48 +1,64 @@
 in aml.maude
 
-view ProverCMD from TRIV to AML-PROVER-COMMANDS is
-    sort Elt to ProverCMD .
-endv
-    
-mod INTERACTIVE-PROOF is
+view ProverCMD from TRIV to AML-PROVER-COMMANDS is sort Elt to ProverCMD . endv
+
+*** Module of functions useful for chaining together prover commands to
+*** create executable interactive proofs
+mod EXECUTE-PROOF is
     including AML-PROVER .
     including LIST{ProverCMD} *
         ( sort List{ProverCMD} to CmdList
         , sort NeList{ProverCMD} to NeCmdList ) .
 
+    *** Execute a list of prover commands in sequence
+    *** starting with the empty ProofState
     op execInteractiveProof : CmdList -> ProofState .
     eq execInteractiveProof(CmdList) = $execInteractiveProof(CmdList, .ProofState) .
 
     op $execInteractiveProof : CmdList ProofState -> ProofState .
     eq $execInteractiveProof(nil, ProofState) = ProofState .
-    eq $execInteractiveProof(Cmd CmdList, ProofState) = 
+    eq $execInteractiveProof(Cmd CmdList, ProofState) =
         $execInteractiveProof(CmdList,
           rewriteProofState(
             applyCommand(Cmd, ProofState)
             , unbounded)) .
 
-    op getProof : ProofState ~> CommentedProof .
-    eq getProof(ProofState ^ hilbertProof(Proof)) = Proof .
-
+    *** - Execute a list of proof commands
+    *** - check if the proof ends with a proved goal
+    *** - send the proof to the proof checker
+    *** Returns True if proof is valid, False otherwise
     op execAndCheckProof : CmdList ~> Bool .
     ceq execAndCheckProof(CmdList) = B:Bool
-      if B:Bool :=
-          check(
-            stripComments(
-              getProof(
-                execInteractiveProof(
-                  CmdList)))) .
-    eq  execAndCheckProof(CmdList) = false [owise] .
+      if ProofState ^ goals(GM) ^ hilbertProof(Proof) :=
+          execInteractiveProof(CmdList)
+      /\ Pi1 PrStep := Proof
+      /\ ClaimId WfId Rl ; := stripComments(PrStep)
+      /\ GM' ; [M (I): P proved at WfId] ; GM'' := GM
+      /\ B:Bool := check(Proof) .
 
-    
-    vars ProofState : ProofState .
-    var Proof : CommentedProof .
+    eq execAndCheckProof(CmdList) = false [owise] .
+
+
+    vars M N I : Nat .
+    var P : Pattern .
+    var ProofState : ProofState .
+    vars Pi1 Proof : CommentedProof .
+    var PrStep : CommentedProofStep .
+    vars WfId ClaimId : Id .
+    var Rl : AMLRule .
+    vars GM GM' GM'' : GoalMap .
     var Cmd : ProverCMD . var CmdList : CmdList .
 endm
 
+************************
+*** BEGIN TEST CASES ***
+************************
+
+*** identity and axiom proof of tautology `T -> T`
 reduce execAndCheckProof(
-  (begin proof of (def @ evar('x)) assuming definednessAxioms)
-  ax
+  (begin proof of top --> top)
+  (identity top)
+  axiom
 ) .
 
 quit
