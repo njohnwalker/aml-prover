@@ -7,14 +7,17 @@ in checker/checker/maude/checker.maude
 
 fmod AML-CHECKER is
     extending CHECKER * (sort Rule to AMLRule, op ___;_ to ___;;_ ) .
+
     *** avoid applying the equation that erases comments for ease of use
     *** mimmic the operator syntax so printed output can be read by the checker
     sort CommentedProofStep CommentedProof .
     subsort ProofStep < Proof CommentedProofStep < CommentedProof .
-    op __ : CommentedProof CommentedProof -> CommentedProof [ctor ditto] .
-    op __ : CommentedProof Proof -> CommentedProof [ctor ditto] .
-    op __ : Proof CommentedProof -> CommentedProof [ctor ditto] .
+
     op ___;_ : Id Claim AMLRule String -> CommentedProofStep [ctor] .
+
+    op __ : CommentedProof CommentedProof -> CommentedProof [ctor ditto] .
+    op __ : CommentedProof          Proof -> CommentedProof [ctor ditto] .
+    op __ :          Proof CommentedProof -> CommentedProof [ctor ditto] .
 
     *** Explicitly convert back to the original proof constructor
     op stripComments : CommentedProof -> Proof .
@@ -28,15 +31,18 @@ fmod AML-CHECKER is
     eq check-id(Proof) = check-id(stripComments(Proof)) .
     eq check-step(Proof) = check-step(stripComments(Proof)) .
 
-    op getStepNum : CommentedProof -> Nat .
-    eq getStepNum(.Proof) = 0 .
+    op getStepNum : CommentedProof ~> Nat .
     eq getStepNum(Pi1 (N) C Rl ;) = N .
     eq getStepNum(Pi1 (N) C Rl ; S) = N .
 
-    op getClaimId : CommentedProof Id -> Id .
-    ceq getClaimId(Proof, Id) = Id'
-      if (Pi1 PrStep Pi2) := Proof
-      /\ Id' Id Rl ; := stripComments(PrStep) .
+    *** Non-total, fails for unproved well-formed pattern Ids
+    op getClaimId : CommentedProof Id ~> Id .
+    eq getClaimId(Pi1 (Id' Id Rl ;  ) Pi2, Id) = Id' .
+    eq getClaimId(Pi1 (Id' Id Rl ; S) Pi2, Id) = Id' .
+
+    op getStepId : CommentedProof Claim AMLRule ~> Id .
+    eq getStepId(Pi1 Id C Rl ; Pi2, C, Rl) = Id .
+    eq getStepId(Pi1 Id C Rl ; S Pi2, C, Rl) = Id .
 
     vars N M : Nat .
     vars Id Id' : Id .
@@ -75,10 +81,10 @@ fmod AML-CORE is protecting VARIABLES .
     subsort Var Symbol < Pattern .
 
     *** Pattern Application
-    op _@_  : Pattern Pattern -> Pattern [ctor gather (E e) format (d s ++s --)] .
+    op _@_ : Pattern Pattern -> Pattern [ctor gather (E e) format (d s ++s --)] .
 
     *** Patten Implication
-    op _-->_  : Pattern Pattern -> Pattern [ctor format (d s s++ --)] .
+    op _-->_ : Pattern Pattern -> Pattern [ctor gather (e E) format (d s s++ --)] .
 
     *** Bottom
     op bot : -> Pattern [ctor] .
@@ -91,7 +97,6 @@ fmod AML-CORE is protecting VARIABLES .
     *** condition on set variable fixpoints
     cmb mu X . P : Pattern if positive(X,P) .
 
-    var B : Bool . vars X X' : SVar . vars P Q : Pattern .  var S : Symbol .
     op positive : SVar Pattern -> Bool .
     eq positive(X,P) = $positive(true, X, P) .
 
@@ -105,6 +110,11 @@ fmod AML-CORE is protecting VARIABLES .
     eq $positive(B, X, exists (x:EVar) . P) = $positive(B, X, P) .
     eq $positive(B, X, mu X . P) = true .
     eq $positive(B, X, mu X' . P) = $positive(B, X, P) .
+
+    var B : Bool .
+    vars X X' : SVar .
+    var S : Symbol .
+    vars P Q : Pattern .
 endfm
 
 view Pattern from TRIV to AML-CORE is sort Elt to Pattern . endv
@@ -164,7 +174,7 @@ fmod AML is including AML-CORE .
 
     ********************
     *** Substitution ***
-    op _[_/_] : Pattern Pattern Var ~> Pattern .
+    op _[_/_] : Pattern Pattern Var ~> Pattern [prec 39].
 
     *** Alpha capture substitution side-condition
     op alphaCapture : -> [Pattern] .
@@ -243,8 +253,8 @@ fmod AML is including AML-CORE .
     eq getVars(S) = empty .
     eq getVars(P @ P') = getVars(P) , getVars(P') .
     eq getVars(P --> P') = getVars(P) , getVars(P') .
-    eq getVars(exists V . P) = getVars(P) .
-    eq getVars(mu V . P) = getVars(P) .
+    eq getVars(exists V . P) = V, getVars(P) .
+    eq getVars(mu V . P) = V, getVars(P) .
     eq getVars((P, PS)) = getVars(P) , getVars(PS) .
 endfm
 
@@ -291,7 +301,7 @@ mod AML-GOAL is including AML .
 
     sort Goal .
     op _|-_ : AntecedentMap ConsequentMap -> Goal [ctor prec 100 format (d nt n d)] .
-    op _proved`at_ : Pattern Id -> Goal [ctor] .
+    op proved : Pattern Id Id -> Goal [ctor] .
 
     sort GoalMap .
     op mt : -> GoalMap [ctor] .
@@ -384,6 +394,16 @@ mod AML-PROOF-LEMMAS is
     sort ProofAndIndex .
     op {_,_} : CommentedProof Id -> ProofAndIndex .
 
+    *** Modus Ponens proof step helper function
+    vars AntWfId HypWfId ConsequentWfId AntClaimId HypClaimId : Id .
+    op modusPonensLemma : Id Id CommentedProof -> ProofAndIndex .
+    ceq modusPonensLemma(AntWfId, HypWfId, Proof) =
+        { Proof (s getStepNum(Proof)) ConsequentWfId (MP AntClaimId HypClaimId) ; ,
+          ConsequentWfId }
+      if AntClaimId := getClaimId(Proof, AntWfId)
+      /\ HypClaimId := getClaimId(Proof, HypWfId)
+      /\ Pi1 HypWfId (\imp AntWfId ConsequentWfId) (WF) ; Pi2 := stripComments(Proof) .
+
     *** Identity Implication Tautology (P -> P)
     op propILemma : Nat Id -> ProofAndIndex .
     eq propILemma(N, PatWFId) =
@@ -404,10 +424,19 @@ mod AML-PROOF-LEMMAS is
           , (N) }
         .
 
+    op propBLemma : Nat Id Id Id -> ProofAndIndex .
+    op propCLemma : Nat Id Id Id -> ProofAndIndex .
+    op PropWLemma : Nat Id Id    -> ProofAndIndex .
+
     sort ProofStateAndIndex .
     op {_,_} : ProofState Id -> ProofStateAndIndex .
 
     op  wfPatternLemma : Pattern ProofState -> ProofStateAndIndex .
+    eq  wfPatternLemma(P, PrSt ^
+          goals(GM ; [N (I): AM ; [- M (WfI): P ] ; AM' |- CM]  ; GM')) =
+        {PrSt ^ goals(GM ; [N (I): AM ; [- M (WfI): P ] ; AM' |- CM]  ; GM'),
+          (WfI)} .
+
     eq  wfPatternLemma(bot, PrSt) = {PrSt, (0)} .
 
     ceq wfPatternLemma(V, variableIndex(VM) ^ PrSt) =
@@ -433,47 +462,44 @@ mod AML-PROOF-LEMMAS is
       if undefinedSym := SM[S] /\ N := s getStepNum(Proof) .
 
     ceq wfPatternLemma(exists EV . P, PrSt) =
-        { PrSt'' ^ hilbertProof(Proof'' (N'') (\ex Id1 Id2) (WF) ;) , (N') }
+        appendProofStep(PrSt'', (\ex Id1 Id2), (WF))
       if {PrSt', Id1} := wfPatternLemma(EV, PrSt)
-      /\ N' := s getStepNum(getProof(PrSt'))
-      /\ {PrSt'' ^ hilbertProof(Proof''), Id2} := wfPatternLemma(P, PrSt')
-      /\ N'' := s getStepNum(Proof'') .
+      /\ {PrSt'', Id2} := wfPatternLemma(P, PrSt') .
 
     ceq wfPatternLemma(mu SV . P, PrSt) =
-        { PrSt''' ^
-          hilbertProof(Proof' (N') (\mu Id1 Id3) (WFMu Id2) ; ),
-          (N')
-        }
+        appendProofStep(PrSt''', (\mu Id1 Id3), (WFMu Id2))
       if {PrSt', Id1} := wfPatternLemma(SV, PrSt)
       /\ {PrSt'', Id2} := nonNegativeLemma(SV, P, PrSt')
-      /\ {PrSt''' ^ hilbertProof(Proof'), Id3} := wfPatternLemma(P, PrSt'')
-      /\ N' := s getStepNum(Proof') .
+      /\ {PrSt''', Id3} := wfPatternLemma(P, PrSt'') .
 
     ceq wfPatternLemma(P @ P', PrSt) =
-        { PrSt'' ^
-          hilbertProof(Proof' (N') (\app Id1 Id2) (WF) ; ),
-          (N')
-        }
+        appendProofStep(PrSt'', (\app Id1 Id2), (WF))
       if {PrSt', Id1} := wfPatternLemma(P, PrSt)
-      /\ {PrSt'' ^ hilbertProof(Proof'), Id2} := wfPatternLemma(P', PrSt')
-      /\ N' := s getStepNum(Proof') .
+      /\ {PrSt'', Id2} := wfPatternLemma(P', PrSt') .
 
     ceq wfPatternLemma(P --> P', PrSt) =
-        { PrSt'' ^
-          hilbertProof(Proof' (N') (\imp Id1 Id2) (WF) ; ),
-          (N')
-        }
+        appendProofStep(PrSt'', (\imp Id1 Id2), (WF) )
       if {PrSt', Id1} := wfPatternLemma(P, PrSt)
-      /\ {PrSt'' ^ hilbertProof(Proof'), Id2} := wfPatternLemma(P', PrSt')
-      /\ N' := s getStepNum(Proof') .
+      /\ {PrSt'', Id2} := wfPatternLemma(P', PrSt') .
+
+    op appendProofStep : ProofState Claim AMLRule -> ProofStateAndIndex .
+    ceq appendProofStep(PrSt, Claim, Rule) = { PrSt, Id }
+      if Id := getStepId(getProof(PrSt), Claim, Rule) .
+
+    ceq appendProofStep(PrSt ^ hilbertProof(Proof), Claim, Rule) =
+        { PrSt ^ hilbertProof(Proof (N) Claim Rule ;), (N) }
+      if N := s getStepNum(Proof) [owise] .
 
     op nonNegativeLemma : SVar Pattern ProofState -> ProofStateAndIndex .
 
-    vars N N' N'' N''' M M' : Nat . vars Id Id1 Id2 Id3 PatWFId : Id .
+    vars N N' N'' N''' M M' I WfI : Nat .
+    vars Id Id1 Id2 Id3 PatWFId : Id .
     var S : Symbol . vars P P' : Pattern .
     var V : Var . var EV : EVar . var SV : SVar .
-    vars Proof Proof' Proof'' : CommentedProof .
+    var Claim : Claim . var Rule : AMLRule .
+    vars Proof Proof' Proof'' Pi1 Pi2 : CommentedProof .
     vars SM SM' : Map{Symbol,Nat} . vars VM VM' : Map{Var,Nat} .
+    vars GM GM' : GoalMap . vars AM AM' : AntecedentMap . var CM : ConsequentMap .
     vars PrSt PrSt' PrSt'' PrSt''' : ProofState .
 endm
 
@@ -512,17 +538,112 @@ since they will be `metaApply`ed by the applyCommand
 equation to enable pattern matching and substitution
 preprocessing as well as descriptive error messages .
 )
-*** axiom rule states `Gamma,Ax |- Ax,Consequents`
-*** and generates the converted hilbert proof
-    rl [axiom] :
-        hilbertProof(Proof) ^
-        goals([GIndex (I): AM1 ; [- N (WfI): P] ; AM2 |- CM1 ; [M (I2): P] ; CM2] ; GM)
-      =>
-        hilbertProof(Proof) ^
-        goals([GIndex (I): P proved at (WfI) ] ; GM)
-        [nonexec] .
+***********************
+*** AML Proof Rules ***
+***********************
 
-*** identity rule states `|- P --> P` forall well-formed P
+*** Propositional K combinator Tautology P --> (Q --> P)
+*** RHS Free Variables:
+*** - `P` instantiating Pattern
+*** - `Q` instantiating Pattern
+    crl [propK] :
+        ProofState
+      =>
+        ProofState' ^
+        hilbertProof(Proof' (s N) (KWfI) (PropK) ;) ^
+        goals(
+          GM ;
+          [ GIndex (GI):
+            [- fresh(AM) (KWfI): P --> (Q --> P)] ; AM |- CM ] ;
+          GM'
+        )
+
+      if hilbertProof(Proof) ^
+         variableIndex(VM) ^ symbolIndex(SM) ^
+         goals(GM ; [GIndex (GI): AM |- CM ] ; GM') ^
+         PrState := ProofState
+      /\ { PrState', (KWfI) } := wfPatternLemma(P --> (Q --> P), ProofState)
+      /\  ProofState' ^
+          hilbertProof(Proof') ^
+          goals(GM ; [GIndex (GI): AM |- CM ] ; GM') := PrState'
+      /\ N := getStepNum(Proof')
+      [nonexec] .
+
+*** Propositional S combinator Tautology
+***     P --> (Q --> R) --> (P --> Q) -> (P --> R)
+*** RHS Free Variables:
+*** - `P` instantiating Pattern
+*** - `Q` instantiating Pattern
+*** - `R` instantiating Pattern
+    crl [propS] :
+        ProofState
+      =>
+        ProofState' ^
+        hilbertProof(Proof' (s N) (SWfI) (PropS) ;) ^
+        goals(
+          GM ;
+          [ GIndex (GI):
+            [- fresh(AM) (SWfI):
+              (P --> Q --> R) -->
+              (P --> Q) -->
+              (P --> R) ] ; AM |- CM ] ;
+          GM'
+        )
+
+      if hilbertProof(Proof) ^
+         variableIndex(VM) ^ symbolIndex(SM) ^
+         goals(GM ; [GIndex (GI): AM |- CM ] ; GM') ^
+         PrState := ProofState
+      /\ { PrState', (SWfI) } := wfPatternLemma(
+              (P --> Q --> R) --> (P --> Q) -->  (P --> R), ProofState)
+      /\  ProofState' ^
+          hilbertProof(Proof') ^
+          goals(GM ; [GIndex (GI): AM |- CM ] ; GM') := PrState'
+      /\ N := getStepNum(Proof')
+      [nonexec] .
+
+*** Modus Ponens Inference Rule
+    crl [modusPonens] :
+        hilbertProof(Proof) ^
+        goals(GM ;
+          [ GIndex (GI):
+            AM1 ; [- L (WfIHyp): Antecedent --> Consequent ] ;
+            AM2 ; [- M (WfIAnt): Antecedent ] ;
+            AM3
+            |- CM ] ;
+          GM')
+      =>
+        hilbertProof(Proof') ^
+        goals(GM ;
+          [ GIndex (GI):
+                  [- fresh(AM1) (WfICon):       Consequent ] ;
+            AM1 ; [- L (WfIHyp): Antecedent --> Consequent ] ;
+            AM2 ; [- M (WfIAnt): Antecedent ] ;
+            AM3
+            |- CM ] ;
+          GM')
+      if {Proof', (WfICon)} := modusPonensLemma((WfIAnt), (WfIHyp), Proof)
+      [nonexec] .
+
+    *** Existence
+    crl [existence] :
+        ProofState
+      =>
+        PrState ^
+        goals(
+          GM ;
+          [ GIndex (GI):
+              [- fresh(AM) (WfI): exists EVar . EVar] ; AM |- CM ] ;
+          GM'
+        )
+      if {ProofState', (WfI)} := wfPatternLemma(exists EVar . EVar , ProofState)
+      /\ {ProofState'', ClaimId} := appendProofStep(ProofState', (WfI), (Existence))
+      /\ PrState ^ goals(GM ; [GIndex (GI): AM |- CM] ; GM') := ProofState''
+      [nonexec] .
+***************************
+*** Derived Proof Rules ***
+***************************
+*** Identity Tautology P --> P
 *** RHS Free Variables:
 *** - `IdPattern` instantiating Pattern
     crl [identity] :
@@ -530,44 +651,89 @@ preprocessing as well as descriptive error messages .
       =>
         ProofState' ^
         hilbertProof(Proof' Proof'') ^
-        goals([GIndex (N): [- fresh(AM) (I): IdPattern --> IdPattern] ; AM |- CM ] ; GM)
+        goals(GM ; [GIndex (N): [- fresh(AM) (I): IdPattern --> IdPattern] ; AM |- CM ] ; GM')
       if hilbertProof(Proof) ^
          variableIndex(VM) ^ symbolIndex(SM) ^
-         goals([GIndex (N): AM |- CM ] ; GM) ^
+         goals(GM ; [GIndex (N): AM |- CM ] ; GM') ^
          PrState := ProofState
       /\ { ProofState' ^
-           goals([GIndex (N): AM |- CM ] ; GM) ^
+           goals(GM ; [GIndex (N): AM |- CM ] ; GM') ^
            hilbertProof(Proof'),
            WfId
          } := wfPatternLemma(IdPattern, ProofState)
       /\ {Proof'', (I)} := propILemma(s getStepNum(Proof'), WfId) [nonexec] .
 
-    vars N M K I I1 I2 WfI GIndex : Nat .
-    vars Id Id' WfId WfId' ClaimId : Id .
+******************************
+*** Sequent Calculus Rules ***
+******************************
+    rl [axiom] :
+        hilbertProof(Proof) ^
+        goals(GM ; [GIndex (I): AM1 ; [- N (WfI): P] ; AM2 |- CM1 ; [M (I2): P] ; CM2] ; GM')
+      =>
+        hilbertProof(Proof) ^
+        goals(GM ; [GIndex (I): proved(P, (WfI), getClaimId(Proof, (WfI)))] ; GM')
+        [nonexec] .
+
+    vars K L M N I I1 I2 GI WfI KWfI SWfI WfIAnt WfIHyp WfICon GIndex : Nat .
+    vars Id Id' WfId WfId' PWfId QWfId RWfId ClaimId : Id .
     vars Proof Proof' Proof'' Pi1 Pi2 PrSt : CommentedProof .
-    var V : Var .
-    vars P Conclusion IdPattern : Pattern .
+    var V : Var . var EVar : EVar .
+    vars P Q R Antecedent Hypothesis Consequent Conclusion IdPattern : Pattern .
     vars PS Assumptions : PatternSet .
     vars S : Symbol .
     vars SM SM' : Map{Symbol,Nat} . vars VM VM' : Map{Var,Nat} .
-    vars GM GM' : GoalMap . vars AM AM' AM'' AM1 AM2 : AntecedentMap .
+    vars GM GM' : GoalMap . vars AM AM' AM'' AM1 AM2 AM3 : AntecedentMap .
     vars CM CM1 CM2 : ConsequentMap .
-    vars ProofState ProofState' PrState : ProofState .
+    vars ProofState ProofState' ProofState'' PrState PrState' PrState'' PrState'''
+        : ProofState .
 endm
+
+fmod SUBSTITUTION is pr META-LEVEL' .
+***  Take a Substitution, Like one from a metaXmatch result,
+*** and instantiate the matched term.
+*** This helps with AML-Pattern Pattern matching in prover commands
+    op applySubstitution : Term     Substitution -> Term .
+    op applySubstitution : TermList Substitution -> TermList .
+
+    eq applySubstitution(Con, Sub) = Con .
+
+    eq applySubstitution(Var, Var <- T ; Sub) = T .
+    eq applySubstitution(Var, Sub) = Var [owise] .
+
+    eq applySubstitution(Operator[Args], Sub) =
+        Operator[applySubstitution(Args, Sub)] .
+
+    eq applySubstitution(empty, Sub) = empty .
+    eq applySubstitution((T ~ Ts), Sub) =
+        applySubstitution(T, Sub) ~ applySubstitution(Ts, Sub) .
+
+    var Var : Variable .
+    var Con : Constant .
+    var T : Term . var Ts : NeTermList .
+    var Operator : Qid .
+    vars Args : TermList .
+    var Sub : Substitution .
+endfm
 
 mod AML-PROVER-COMMANDS is including AML-PROOF-STATE-TRANSITIONS .
     inc AML-JUDGEMENTS .
     protecting INT .
     protecting PRINT-AML-GOAL .
-    protecting AML-GOAL . protecting AML-USER-THEORY .
+    protecting AML-GOAL .
+    protecting AML-USER-THEORY .
 
     protecting LOOP-MODE .
+    protecting SUBSTITUTION .
     protecting PRETTY .
     sorts Tactic MLRule ProverCMD .
 
+*************************
+*** Basic UI Commands ***
+*************************
     op noop : -> ProverCMD [ctor] .
 
-    op begin`proof`of_assuming_ : Pattern PatternList -> ProverCMD [ctor gather (& E)] .
+    sort EmptyProofCMD . subsort EmptyProofCMD < ProverCMD .
+    op begin`proof`of_assuming_ : Pattern PatternList -> EmptyProofCMD [ctor gather (& E)] .
     op begin`proof`of_ : Pattern -> ProverCMD [prec 42] .
     eq begin proof of P = begin proof of P assuming nil .
 
@@ -595,23 +761,83 @@ mod AML-PROVER-COMMANDS is including AML-PROOF-STATE-TRANSITIONS .
     op dump`proof : -> ProverCMD .
     eq dump`proof = dp .
 
-    *** Proof Rule Commands ***
+*******************************
+*** AML Proof Rule Commands ***
+*******************************
+    sort PatternProverCMD .
+    subsort PatternProverCMD < ProverCMD .
+    *** Prop Κ:
+    ***  Γ |- Δ
+    *** ---------------------
+    ***  Γ, P -> Q -> P |- Δ
+    op K__ : Pattern Pattern -> PatternProverCMD [ctor prec 42] .
+    op propK__ : Pattern Pattern -> PatternProverCMD [prec 42].
+    eq propK P Q = K P Q .
+
+    *** Prop S:
+    ***  Γ |- Δ
+    *** -------------------------------------------------
+    ***  Γ, (P -> (Q -> R)) -> (P -> Q) -> (P -> R) |- Δ
+    op S___ : Pattern Pattern Pattern -> ProverCMD [ctor prec 42] .
+    op propS___ : Pattern Pattern Pattern -> ProverCMD [prec 42].
+    eq propS P Q R = S P Q R .
+
+    *** Prop F:
+    ***  Γ |- Δ
+    *** ----------------------------------
+    ***  Γ, ((P -> _|_) -> _|_) -> P |- Δ
+    op F_ : Pattern -> ProverCMD [ctor prec 42] .
+    op propF_ : Pattern -> ProverCMD .
+    eq propS P Q R = S P Q R .
+
+    *** Modus Ponens:
+    ***  Γ, P, P -> Q |- Δ
+    *** ----------------------
+    ***  Γ, P, P -> Q, Q |- Δ
+    op mp__ : Pattern Pattern -> ProverCMD [ctor] .
+    op modus`ponens__ : Pattern Pattern -> ProverCMD [ctor] .
+    eq modus ponens P Q  = mp P Q .
+
+    *** Existence
+    ***  Γ |- Δ
+    *** ------------------
+    ***  Γ, ∃ x . x, |- Δ
+    op ex_ : Qid -> ProverCMD [ctor] .
+    op existence_ : Qid -> ProverCMD .
+    eq existence Q:Qid = ex Q:Qid .
+
+***************************
+*** Derived Proof Rules ***
+***************************
+    *** Identity Tautology:
+    ***  Γ |- Δ
+    *** --------
+    ***  Γ, P -> P |- Δ
+    op id_ : Pattern -> ProverCMD [ctor prec 42] .
+    op identity_ : Pattern -> ProverCMD [prec 42] .
+    eq identity P = id P .
+
+******************************
+*** Sequent Calculus Rules ***
+******************************
+    *** Axiom:
+    *** ----------
+    ***  Γ, ax |- ax, Δ
     op ax : -> ProverCMD [ctor] .
     op axiom : -> ProverCMD .
     eq axiom = ax .
 
-    op id_ : [Pattern] -> ProverCMD [ctor] .
-    op identity_ : [Pattern] -> ProverCMD .
-    eq identity P:[Pattern] = id P:[Pattern] .
-
-    *******************************************
-    *** Prover Command Application Function ***
+**********************************
+*** Prover Command Application ***
     sort CommandResult .
     subsort ProofState QidList < CommandResult .
     op <_#_> : ProofState QidList -> CommandResult [ctor] .
     op noProof : -> CommandResult [ctor] .
     op applyCommand : ProverCMD ProofState -> CommandResult .
 
+*************************
+*** Basic UI Commands ***
+*************************
     *** Initiate prover loop
     eq applyCommand(begin proof of Conclusion assuming Hypotheses, .ProofState) =
         initializeProofState(Hypotheses, Conclusion) .
@@ -622,7 +848,8 @@ mod AML-PROVER-COMMANDS is including AML-PROOF-STATE-TRANSITIONS .
         'please ''dump 'proof' 'and 'try 'again '\n .
 
     *** Empty ProofState
-    eq applyCommand(CMD:ProverCMD, .ProofState) = noProof [owise] .
+    ceq applyCommand(CMD:ProverCMD, .ProofState) = noProof
+      if not (CMD:ProverCMD :: EmptyProofCMD) .
 
     *** Print Goals
     eq applyCommand(pgs, goals(GM) ^ ProofState) = pretty(GM) .
@@ -648,39 +875,93 @@ mod AML-PROVER-COMMANDS is including AML-PROOF-STATE-TRANSITIONS .
     eq applyCommand(pg, goals([0 (I): G] ; GM) ^ ProofState) =
         metaPrettyPrint(['PRINT-AML-GOAL], upTerm(G))  .
 
-    *******************
-    *** PROOF RULES ***
-    *******************
+***********************
+*** AML Proof Rules ***
+***********************
+    *** PropK
+    eq applyCommand(K P Q, ProofState) =
+        applyRule(ProofState, 'propK,
+          'GIndex:Nat <- upTerm(0) ;
+          'P:Pattern <- upTerm(P) ;
+          'Q:Pattern <- upTerm(Q)) .
 
-    *** AXIOM
-    ceq applyCommand(ax, ProofState) = ProofState'
-      if ProofState' := applyRule(ProofState, 'axiom, 'GIndex:Nat <- upTerm(0), 0, 0) .
+    *** PropS
+    eq applyCommand(S P Q R, ProofState) =
+        applyRule(ProofState, 'propS,
+          'GIndex:Nat <- upTerm(0) ;
+          'P:Pattern <- upTerm(P) ;
+          'Q:Pattern <- upTerm(Q) ;
+          'R:Pattern <- upTerm(R)) .
 
-    eq applyCommand(ax, ProofState) =
-        'No 'match 'for 'AXIOM 'judgement [owise] .
+    *** PropF
+    eq applyCommand(F P, ProofState) =
+        applyRule(ProofState, 'propF,
+          'GIndex:Nat <- upTerm(0) ;
+          'P:Pattern <- upTerm(P) ) .
 
+    *** Modus Ponens
+    ceq applyCommand(mp Ant Con, ProofState) = ProofState'
+      if PrState ^ goals([ 0 (I): AM |- CM  ] ; GM) := ProofState
+      /\ Ant' --> Con' := amlPatternMatch(Ant --> Con, upTerm(AM))
+      /\ Ant' := amlPatternMatch(Ant', upTerm(AM))
+      /\ ProofState' := applyRule(ProofState, 'modusPonens,
+            'GIndex:Nat <- upTerm(0) ;
+            'Antecedent:Pattern <- upTerm(Ant') ;
+            'Consequent:Pattern <- upTerm(Con') ) .
+
+    eq applyCommand(mp Ant Con, ProofState) =
+        'Modus 'Ponens 'failed .
+
+    eq applyCommand(ex Q:Qid, ProofState) =
+        applyRule(ProofState, 'existence, 'EVar:EVar <- upTerm(evar(Q:Qid))) .
+
+***************************
+*** Derived Proof Rules ***
+***************************
     *** IDENTITY assumption
     eq applyCommand(id P, ProofState) =
         applyRule(ProofState, 'identity,
-          *** 'GIndex:Nat <- upTerm(0) ;
-          'IdPattern:Pattern <- upTerm(P), 0, 0) .
+          'GIndex:Nat <- upTerm(0) ;
+          'IdPattern:Pattern <- upTerm(P)) .
 
-    eq applyCommand(id P:[Pattern], ProofState) =
-        'propI 'failed: '\n '\t
-        'input 'pattern 'not 'well-formed [owise] .
+******************************
+*** Sequent Calculus Rules ***
+******************************
+    *** AXIOM
+    ceq applyCommand(ax, ProofState) = ProofState'
+      if ProofState' :=
+          applyRule(ProofState, 'axiom, 'GIndex:Nat <- upTerm(0)) .
+
+    eq applyCommand(ax, ProofState) =
+        'No 'match 'for 'AXIOM 'judgement [owise] .
 
 *** Helper Functions
     *** Apply a rule contained in the AML-JUDGEMENTS module
     sort JudgementResult .
     subsort ProofState < JudgementResult .
     op failure : -> JudgementResult [ctor] .
+    op applyRule : ProofState Qid Substitution -> JudgementResult .
     op applyRule : ProofState Qid Substitution Nat Nat -> JudgementResult .
-    ceq [applyrule] :
-        applyRule(ProofState, Label, Sub, N, M) = downTerm(ProofStateTerm, .ProofState)
+    eq applyRule(ProofState, Label, Sub) = applyRule(ProofState, Label, Sub, 0, 0) .
+    ceq applyRule(ProofState, Label, Sub, N, M) =
+        downTerm(ProofStateTerm, .ProofState)
       if {ProofStateTerm, Type:Type, Sub', Cont:Context} :=
           metaXapply(['AML-JUDGEMENTS], upTerm(ProofState), Label, Sub, N, unbounded, M)  .
     eq applyRule(ProofState, Label, Sub, N, M) = failure [owise] .
 
+    op amlPatternMatch : Pattern Term -> Pattern .
+    eq amlPatternMatch(P, Term) =
+        downTerm(
+          applySubstitution(
+            upTerm(P),
+            getSubstitution(
+              metaXmatch(
+                ['PRINT-AML-GOAL],
+                upTerm(P),
+                Term,
+                nil,
+                0, unbounded, 0))),
+          bot) .
 
     *** Print Current Goal after successful rule application
     op printSuccess : ProofState -> QidList .
@@ -688,12 +969,14 @@ mod AML-PROVER-COMMANDS is including AML-PROOF-STATE-TRANSITIONS .
         metaPrettyPrint(['PRINT-AML-GOAL], upTerm(G)) .
 
     vars I N M : Nat .
-    vars P Conclusion : Pattern .
+    vars P Q R Ant Ant' Con Con' Conclusion : Pattern .
     var Hypotheses : PatternList .
+    var AM : AntecedentMap .
+    var CM : ConsequentMap .
     var G : Goal . var GM : GoalMap .
     vars Proof CommentedProof : CommentedProof .
-    vars S ProofState ProofState' : ProofState .
-    var Label : Qid . var ProofStateTerm : Term . vars Sub Sub' : Substitution .
+    vars S ProofState ProofState' PrState : ProofState .
+    var Label : Qid . vars ProofStateTerm Term : Term . vars Sub Sub' : Substitution .
 endm
 
 mod AML-PROVER is
@@ -729,6 +1012,14 @@ mod AML-PROVER is
       if QIN =/= nil
       /\ {Term,Type} := metaParse(['AML-PROVER-COMMANDS], QIN, 'ProverCMD )
       /\ QOUT' := applyCommand(downTerm(Term, noop), S) .
+
+    crl [inputCorrectCMDMalformed] :
+        [QIN, S, QOUT ] => [ nil, S,
+          'Command 'is 'malformed '\n
+          'Check 'that 'pattern 'arguments 'are 'well-formed ]
+      if QIN =/= nil
+      /\ {Term,Type} := metaParse(['AML-PROVER-COMMANDS], QIN, 'ProverCMD )
+      /\ not (downTerm(Term, noop) :: ProverCMD) .
 
     crl [inputCorrectCMDFails] :
         [QIN, S, QOUT ] => [ nil, S, 'Command 'application 'failed ]

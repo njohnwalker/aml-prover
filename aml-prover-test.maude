@@ -33,11 +33,8 @@ mod EXECUTE-PROOF is
           execInteractiveProof(CmdList)
       /\ Pi1 PrStep := Proof
       /\ ClaimId WfId Rl ; := stripComments(PrStep)
-      /\ GM' ; [M (I): P proved at WfId] ; GM'' := GM
+      /\ GM' ; [M (I): proved(P, WfId, ClaimId) ] ; GM'' := GM
       /\ B:Bool := check(Proof) .
-
-    eq execAndCheckProof(CmdList) = false [owise] .
-
 
     vars M N I : Nat .
     var P : Pattern .
@@ -50,15 +47,74 @@ mod EXECUTE-PROOF is
     var Cmd : ProverCMD . var CmdList : CmdList .
 endm
 
+
+mod TEST is protecting EXECUTE-PROOF .
+    sort TestResult .
+    op FAILURE : -> TestResult [ctor format (r d)] .
+    op Success : -> TestResult [ctor format (g d)] .
+
+    op _ should be _ : Bool Bool -> TestResult .
+    eq Actual should be Expected =
+      if Actual == Expected
+        then Success
+        else FAILURE
+        fi .
+    eq Actual:[Bool] should be Expected =
+      if not Expected
+        then Success
+        else FAILURE
+        fi
+        [owise] .
+
+    vars Expected Actual : Bool .
+endm
+
 ************************
 *** BEGIN TEST CASES ***
 ************************
 
-*** identity and axiom proof of tautology `T -> T`
+*** SK calculus proof of tautology `_|_ -> _|_`
 reduce execAndCheckProof(
-  (begin proof of top --> top)
-  (identity top)
-  axiom
-) .
+(begin proof of bot --> bot)
+(propK bot bot)
+(propK bot (bot --> bot))
+(propS bot (bot --> bot) bot)
+(modus ponens (bot --> (bot --> bot) --> bot) ((bot --> bot --> bot) --> bot --> bot))
+(modus ponens (bot --> bot --> bot) (bot --> bot))
+(axiom)
+) should be true .
+
+*** SK calculus proof of tautology `_|_ -> _|_`
+*** Pattern pattern matching for Modus Ponens
+reduce execAndCheckProof(
+(begin proof of bot --> bot)
+(propK bot bot)
+(propK bot (bot --> bot))
+(propS bot (bot --> bot) bot)
+(modus ponens P:Pattern Q:Pattern)
+(modus ponens P:Pattern (bot --> bot))
+(axiom)
+) should be true .
+
+*** Top introduction axiom
+reduce execAndCheckProof(
+(begin proof of top)
+(existence 'x)
+(ax)
+) should be true .
+
+*** Top introduction axiom false
+reduce execAndCheckProof(
+(begin proof of top)
+(existence 'y)
+(ax)
+) should be false .
+
+*** identity lemma proof of tautology `_|_ -> _|_`
+red execAndCheckProof(
+(begin proof of bot --> bot)
+(identity bot)
+(axiom)
+) should be true .
 
 quit
