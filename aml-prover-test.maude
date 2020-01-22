@@ -28,13 +28,13 @@ mod EXECUTE-PROOF is
     *** - send the proof to the proof checker
     *** Returns True if proof is valid, False otherwise
     op execAndCheckProof : CmdList ~> Bool .
-    ceq execAndCheckProof(CmdList) = B:Bool
+    ceq execAndCheckProof(CmdList) = B:[Bool]
       if ProofState ^ goals(GM) ^ hilbertProof(Proof) :=
           execInteractiveProof(CmdList)
       /\ Pi1 PrStep := Proof
       /\ ClaimId WfId Rl ; := stripComments(PrStep)
       /\ GM' ; [M (I): proved(P, WfId, ClaimId) ] ; GM'' := GM
-      /\ B:Bool := check(Proof) .
+      /\ B:[Bool] := check(Proof) .
 
     vars M N I : Nat .
     var P : Pattern .
@@ -47,31 +47,151 @@ mod EXECUTE-PROOF is
     var Cmd : ProverCMD . var CmdList : CmdList .
 endm
 
+mod EXECUTE-PROOF-LEMMA is including AML-PROVER .
+    op initstate : -> ProofState .
+    eq initstate = applyCommand(begin proof of bot, .ProofState) .
 
-mod TEST is protecting EXECUTE-PROOF .
+    op check : ProofState ~> Bool .
+    eq check(ProofState ^ hilbertProof(Proof)) = check(Proof) .
+    eq check(ProofState) = false [owise] .
+
+    op check : ProofAndIndex ~> Bool .
+    eq check({Proof, Id:Id}) = check(Proof) .
+
+    op check : ProofStateAndIndex ~> Bool .
+    eq check({ProofState, Id:Id}) = check(ProofState) .
+
+    op muTestPattern : -> Pattern .
+    eq muTestPattern =
+        ( mu svar('X) .
+          exists evar('y) .
+          (succ @ z --> bot) --> bot) .
+
+    var Proof : CommentedProof .
+    var ProofState : ProofState .
+endm
+
+mod TEST is pr EXECUTE-PROOF + EXECUTE-PROOF-LEMMA .
+
     sort TestResult .
-    op FAILURE : -> TestResult [ctor format (r d)] .
+    op FAILURE_ : [Bool] -> TestResult [ctor format (r on d)] .
     op Success : -> TestResult [ctor format (g d)] .
 
-    op _ should be _ : Bool Bool -> TestResult .
+    op _ should be _ : [Bool] Bool -> TestResult .
     eq Actual should be Expected =
       if Actual == Expected
         then Success
-        else FAILURE
+        else FAILURE Actual
         fi .
-    eq Actual:[Bool] should be Expected =
-      if not Expected
-        then Success
-        else FAILURE
-        fi
-        [owise] .
+    eq B:[Bool] should be Expected = FAILURE B:[Bool] [owise] .
 
+    op _ should fail : [Bool] -> TestResult .
+    eq Actual should fail = FAILURE Actual .
+    eq Actual:[Bool] should fail = Success .
+
+    vars PiValid PiInvalid : Proof .
     vars Expected Actual : Bool .
 endm
 
-************************
-*** BEGIN TEST CASES ***
-************************
+************************************
+*** BEGIN PROOF LEMMA TEST CASES ***
+************************************
+*** Well-formed / non-negative ocurrence of bound set variable
+reduce check(
+  wfPatternLemma(muTestPattern, initstate)
+) should be true .
+
+*** Not free variable occurrence
+reduce check(
+  notFreeLemma(evar('x), mu svar('X) . bot, initstate)
+) should be true .
+
+reduce check(
+  notFreeLemma(evar('x), muTestPattern, initstate)
+) should be true .
+
+reduce check(
+  notFreeLemma(
+    evar('x),
+    mu svar('X) . exists evar('y) . (succ @ z --> evar('x)) --> bot,
+    initstate
+  )
+) should fail .
+
+*** substitution assertion
+red check(
+  substitutionLemma(z,evar('x),z,evar('x),initstate)
+) should be true .
+
+red check(
+  substitutionLemma(z,evar('y),z,evar('x),initstate)
+) should fail .
+
+red check(
+  substitutionLemma(
+    exists evar('y) . eq(evar('y), succ @ z ),
+    exists evar('y) . eq(evar('y), succ @ z ),
+    z,
+    evar('y),
+    initstate
+  )
+) should be true .
+
+red check(
+  substitutionLemma(
+    exists evar('x) . z,
+    exists evar('x) . evar('y),
+    z,
+    evar('y),
+    initstate
+  )
+) should be true .
+
+red check(
+  substitutionLemma(
+    mu svar('x) . bot,
+    mu svar('x) . evar('y),
+    bot,
+    evar('y),
+    initstate
+  )
+) should be true .
+
+red check(
+  substitutionLemma(
+    eq(succ @ z, succ @ z ),
+    eq(evar('x), succ @ z ),
+    succ @ z,
+    evar('x),
+    initstate
+  )
+) should be true .
+
+*** Application context assertion
+red check(
+  applicationContextLemma(
+    (plus @ (z --> bot)) @ (succ @ (succ @ [])),
+    initstate
+  )
+) should be true .
+
+red check(
+  applicationContextLemma(
+     (plus @ (succ @ [])) @ (succ @ (z --> bot)),
+    initstate
+  )
+) should be true .
+
+*****************************
+*** PROOF RULE TEST CASES ***
+*****************************
+
+*** PropF proof
+reduce execAndCheckProof(
+(begin proof of ((bot --> bot) --> bot) --> bot)
+(propF bot)
+(axiom)
+) should be true .
 
 *** SK calculus proof of tautology `_|_ -> _|_`
 reduce execAndCheckProof(
@@ -96,25 +216,110 @@ reduce execAndCheckProof(
 (axiom)
 ) should be true .
 
-*** Top introduction axiom
+reduce execAndCheckProof(
+(begin proof of bot --> bot)
+(propK bot bot)
+(modus ponens P:Pattern Q:Pattern)
+(axiom)
+) should fail .
+
+*** Top quantification
+reduce execAndCheckProof(
+(begin proof of exists evar('y) . top)
+(existence 'x)
+(existential quantifier 'y top)
+(modus ponens P:Pattern Q:Pattern)
+(ax)
+) should be true .
+
+*** Generalization
+reduce execAndCheckProof(
+(begin proof of (exists evar('x) . bot) --> bot)
+(propI bot)
+(existential generalization 'x P:Pattern P:Pattern)
+(axiom)
+) should be true .
+
+*** Propagation
+  *** _|_
+reduce execAndCheckProof(
+(begin proof of bot @ z --> bot)
+(left bot propagation z)
+(axiom)
+) should be true .
+
+reduce execAndCheckProof(
+(begin proof of succ @ bot --> bot)
+(right bot propagation succ)
+(axiom)
+) should be true .
+
+  *** \/
+reduce execAndCheckProof(
+(begin proof of (succ \/ succ @ succ) @ z --> (succ @ z \/ succ @ succ @ z))
+(left or propagation z succ (succ @ succ))
+(axiom)
+) should be true .
+
+reduce execAndCheckProof(
+(begin proof of succ @ (z \/ succ @ z) --> (succ @ z \/ succ @ (succ @ z)))
+(right or propagation succ z (succ @ z))
+(axiom)
+) should be true .
+
+  *** ∃
+reduce execAndCheckProof(
+(begin proof of (exists evar('x) . evar('x)) @ z --> (exists evar('x) . evar('x) @ z))
+(left existential propagation z evar('x) evar('x))
+(axiom)
+) should be true .
+
+reduce execAndCheckProof(
+(begin proof of succ @ top --> (exists evar('x) . succ @ evar('x)))
+(right existential propagation succ evar('x) evar('x))
+(axiom)
+) should be true .
+
+*** Framing
+reduce execAndCheckProof(
+(begin proof of succ @ z --> succ @ z)
+(propI succ)
+(left framing z P:Pattern P:Pattern)
+(axiom)
+) should be true .
+
+reduce execAndCheckProof(
+(begin proof of succ @ z --> succ @ z)
+(propI z)
+(right framing succ P:Pattern P:Pattern)
+(axiom)
+) should be true .
+
+*** Existence axiom (top)
 reduce execAndCheckProof(
 (begin proof of top)
 (existence 'x)
 (ax)
 ) should be true .
 
-*** Top introduction axiom false
+*** Singleton
 reduce execAndCheckProof(
-(begin proof of top)
-(existence 'y)
-(ax)
-) should be false .
-
-*** identity lemma proof of tautology `_|_ -> _|_`
-red execAndCheckProof(
-(begin proof of bot --> bot)
-(identity bot)
+(begin proof of
+    succ @ ((evar('x) --> (z --> bot) --> bot) --> bot) -->
+    plus @ (bot --> bot) @ ((evar('x) --> z --> bot) --> bot)
+        --> bot )
+(singleton succ @ [] plus @ (bot --> bot) @ [] 'x z --> bot)
 (axiom)
 ) should be true .
 
-quit
+********************************
+*** DERIVED PROOF RULE TESTS ***
+********************************
+
+*** identity lemma proof of tautology `_|_ -> _|_`
+reduce execAndCheckProof(
+(begin proof of bot --> bot)
+(propI bot)
+(axiom)
+) should be true .
+
