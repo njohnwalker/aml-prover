@@ -1175,6 +1175,30 @@ mod AML-PROVER-COMMANDS is including AML-PROOF-STATE-TRANSITIONS .
     op right`framing___ : Pattern Pattern Pattern -> PatternProverCMD .
     eq right framing C:Pattern P Q = rfr C:Pattern P Q .
 
+    *** Set Variable Substitution
+    ***  Γ, P |- Δ
+    *** ----------------
+    ***  Γ, P[Q/X] |- Δ
+    op svs___ : Qid Pattern Pattern -> PatternProverCMD [ctor] .
+    op set`variable`substitution___ : Qid Pattern Pattern -> PatternProverCMD .
+    eq set variable substitution X:Qid P Q = svs X:Qid P Q .
+
+    *** Pre-fixpoint
+    ***  Γ |- Δ
+    *** ---------------------------------
+    ***  Γ P[μ X . P/X] --> μ X . P |- Δ
+    op pfp__ : Qid Pattern -> PatternProverCMD [ctor] .
+    op pre`fixpoint__ : Qid Pattern -> PatternProverCMD .
+    eq pre fixpoint X:Qid P = pfp X:Qid P .
+
+    *** Knaster-Tarski
+    ***  Γ,  P[Q/X] --> Q |- Δ
+    *** -----------------------
+    ***  Γ, μ X . P --> Q |- Δ
+    op kt___ : Qid Pattern Pattern -> PatternProverCMD [ctor] .
+    op knaster`tarski___ : Qid Pattern Pattern -> PatternProverCMD .
+    eq knaster tarski X:Qid P Q = kt X:Qid P Q .
+
     *** Existence
     ***  Γ |- Δ
     *** ------------------
@@ -1373,6 +1397,71 @@ mod AML-PROVER-COMMANDS is including AML-PROOF-STATE-TRANSITIONS .
       /\ AM1 ; [- N (WfI): Ant' --> Con'] ; AM2 := AM
       /\ ClaimId := getClaimId((WfI), getProof(ProofState)) .
 
+    *** set variable substitution
+    ceq applyCommand(svs X:Qid Hyp Q, ProofState) =
+        appendAntecedent(0, WfId, Conclusion, PrSt5)
+      if SVar := svar(X:Qid)
+      /\ AM |- CM := getGoal(0, ProofState)
+      /\ Hyp' := amlPatternMatch(Hyp, upTerm(AM), upTerm(Hyp[Q / SVar]) : 'Pattern)
+      /\ AM1 ; [- N (WfI): Hyp'] ; AM2 := AM
+      /\ {PrSt1, XId} := wfPatternLemma(SVar,ProofState)
+      /\ {PrSt2, QId} := wfPatternLemma(Q, PrSt1)
+      /\ Conclusion := Hyp'[Q / SVar]
+      /\ {PrSt3, WfId} := wfPatternLemma(Conclusion, PrSt2)
+      /\ {PrSt4, SubId} := substitutionLemma(WfId, (WfI), QId, XId, PrSt3)
+      /\ ClaimId := getClaimId((WfI), getProof(PrSt4))
+      /\ {PrSt5, Id} :=
+          appendProofStep(WfId, (SVarSubst (ClaimId) SubId), PrSt4) .
+
+    eq applyCommand(svs X:Qid Hyp Q, ProofState) =
+        'Set 'Variable 'Substitution 'failed '\n
+        'Check 'that 'substitution 'avoids 'alpha 'capture
+        [owise] .
+
+    *** Pre-Fixpoint
+    ceq applyCommand(pfp X:Qid P, ProofState) =
+        appendAntecedent(0, WfId, R --> Q, PrSt5)
+      if SVar := svar(X:Qid)
+      /\ Q := mu SVar . P
+      /\ R := P[mu SVar . P / SVar]
+      /\ {PrSt, PId} := wfPatternLemma(P, ProofState)
+      /\ {PrSt1, QId} := wfPatternLemma(Q, PrSt)
+      /\ {PrSt2, RId} := wfPatternLemma(R, PrSt1)
+      /\ XId := (getVariableIndex(PrSt2)[SVar])
+      /\ {PrSt3, SubId} := substitutionLemma(RId, PId, QId, XId, PrSt2)
+      /\ {PrSt4, WfId} := wfPatternLemma(R --> Q, PrSt3)
+      /\ {PrSt5, ClaimId} := appendProofStep(WfId, (Prefixpoint SubId), PrSt4) .
+
+    eq applyCommand(pfp X:Qid P, ProofState) =
+        'Pre-fixpoint 'failed '\n
+        'Check 'that 'substitution 'avoids 'alpha 'capture
+        [owise] .
+
+    *** Knaster-Tarski
+    ceq applyCommand(kt X:Qid P Con, ProofState) =
+        appendAntecedent(0, WfId, Conclusion, PrSt3)
+      if SVar := svar(X:Qid)
+      /\ AM |- CM := getGoal(0, ProofState)
+      /\ Ant' --> Con' :=
+          amlPatternMatch(
+              '_-->_['Ant:Pattern ~ upTerm(Con)],
+              upTerm(AM),
+              'Ant:Pattern := upTerm(P[Con / SVar]))
+      /\ AM1 ; [- N (WfI): Ant' --> Con'] ; AM2 := AM
+      /\ ClaimId := getClaimId((WfI), getProof(ProofState))
+      /\ (\imp RId QId) := getProof(ProofState)[((WfI)).Id]
+      /\ Conclusion := (mu SVar . P) --> Con'
+      /\ {PrSt1, WfId} := wfPatternLemma(Conclusion, ProofState)
+      /\ (\imp Id QId) := getProof(PrSt1)[WfId]
+      /\ (\mu XId PId) := getProof(PrSt1)[Id]
+      /\ {PrSt2, SubId} := substitutionLemma(RId, PId, QId, XId, PrSt1)
+      /\ {PrSt3, (I)} := appendProofStep((WfId), (KT ClaimId SubId), PrSt2) .
+
+    eq applyCommand(kt X:Qid PreP Q, ProofState) =
+        'Knaster-Tarksi 'failed '\n
+        'check 'that 'pattern 'argument 'is  'correct 'substitution
+        [owise] .
+
     *** Existence Axiom
     eq applyCommand(ex Q:Qid, ProofState) =
         axiomIntroRule(0, exists evar(Q:Qid) . evar(Q:Qid), (Existence),
@@ -1446,17 +1535,15 @@ mod AML-PROVER-COMMANDS is including AML-PROOF-STATE-TRANSITIONS .
 
     op amlPatternMatch : Pattern Term           ~> Pattern .
     op amlPatternMatch : Pattern Term Condition ~> Pattern .
+    op amlPatternMatch : Term    Term Condition ~> Pattern .
     eq amlPatternMatch(P, Term) = amlPatternMatch(P, Term, nil) .
-    ceq amlPatternMatch(P, Term, Condition) =
-        downTerm(applySubstitution(upTerm(P), Sub), bot)
-      if Sub :=
-          getSubstitution(
-            metaXmatch(
-              ['PRINT-AML-GOAL],
-              upTerm(P),
-              Term,
-              Condition,
-              0, unbounded, 0)) .
+    eq amlPatternMatch(P, Term, Condition) =
+        amlPatternMatch(upTerm(P), Term, nil) .
+    ceq amlPatternMatch(Term1, Term2, Condition) =
+        downTerm(applySubstitution(Term1, Sub), bot)
+      if Sub := getSubstitution(
+            metaXmatch(['PRINT-AML-GOAL], Term1, Term2,
+              Condition, 0, unbounded, 0)) .
 
     *** Print Current Goal after successful rule application
     op printSuccess : ProofState -> QidList .
@@ -1469,10 +1556,11 @@ mod AML-PROVER-COMMANDS is including AML-PROOF-STATE-TRANSITIONS .
       fi .
 
     vars I N M WfI : Nat .
-    vars Id PId QId RId FVId WfId CId1 CId2 ResId1 ResId2 : Id .
-    vars NFId ACId1 ACId2 SubId1 SubId2 ClaimId : Id .
+    vars Id PId QId RId XId FVId WfId CId1 CId2 ResId1 ResId2 : Id .
+    vars NFId ACId1 ACId2 SubId SubId1 SubId2 ClaimId : Id .
+    var SVar : SVar .
     var EVar : EVar .
-    vars P Q R Ant Ant' Con Con' Conclusion : Pattern .
+    vars P Q R Ant Ant' Con Con' Hyp Hyp' Conclusion PreP : Pattern .
     vars Ctx Ctx1 Ctx2 : ApplicationContext .
     var Hypotheses : PatternList .
     vars AM AM1 AM2 : AntecedentMap .
@@ -1483,7 +1571,7 @@ mod AML-PROVER-COMMANDS is including AML-PROOF-STATE-TRANSITIONS .
     vars PrSt PrSt1 PrSt2 PrSt3 PrSt4 PrSt5 : ProofState .
     vars PrSt6 PrSt7 PrSt8 PrSt9 PrSt10 PrSt11 : ProofState .
     var Label : Qid .
-    vars ProofStateTerm Term : Term .
+    vars ProofStateTerm Term Term1 Term2 : Term .
     vars Sub Sub' : Substitution .
     var Condition : Condition .
 endm
@@ -1570,6 +1658,9 @@ mod AML-PROVER is
       if QIN =/= nil
       /\ noParse(N:Nat) := metaParse(['AML-PROVER-COMMANDS], QIN, 'ProverCMD ) .
 
+    op rewriteProofState : ProofState -> ProofState .
+    eq rewriteProofState(ProofState) =
+        rewriteProofState(ProofState, unbounded) .
     op rewriteProofState : ProofState Bound -> ProofState .
     ceq rewriteProofState(ProofState, B:Bound) = downTerm(Term, .ProofState)
       if {Term, Type} := metaRewrite(['AML-PROVER], upTerm(ProofState), B:Bound) .

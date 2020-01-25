@@ -15,13 +15,20 @@ mod EXECUTE-PROOF is
     op execInteractiveProof : CmdList -> ProofState .
     eq execInteractiveProof(CmdList) = $execInteractiveProof(CmdList, .ProofState) .
 
-    op $execInteractiveProof : CmdList ProofState -> ProofState .
+    op $execInteractiveProof : CmdList ProofState -> CommandResult .
     eq $execInteractiveProof(nil, ProofState) = ProofState .
-    eq $execInteractiveProof(Cmd CmdList, ProofState) =
-        $execInteractiveProof(CmdList,
-          rewriteProofState(
-            applyCommand(Cmd, ProofState)
-            , unbounded)) .
+    ceq $execInteractiveProof(Cmd CmdList, ProofState) =
+        $execInteractiveProof(CmdList, rewriteProofState(ProofState'))
+      if ProofState' := applyCommand(Cmd, ProofState) .
+
+    ceq $execInteractiveProof(Cmd CmdList, ProofState) =
+        $execInteractiveProof(CmdList, rewriteProofState(ProofState'))
+      if < ProofState' # OUT:QidList > := applyCommand(Cmd, ProofState) .
+
+    ceq $execInteractiveProof(Cmd CmdList, ProofState) = OUT:QidList
+      if OUT:QidList := applyCommand(Cmd, ProofState) .
+
+    op error_ : QidList ~> Bool [format (r o d)] .
 
     *** - Execute a list of proof commands
     *** - check if the proof ends with a proved goal
@@ -35,10 +42,13 @@ mod EXECUTE-PROOF is
       /\ ClaimId WfId Rl ; := stripComments(PrStep)
       /\ GM' ; [M (I): proved(P, WfId, ClaimId) ] ; GM'' := GM
       /\ B:[Bool] := check(Proof) .
+    ceq execAndCheckProof(CmdList) = error OUT:QidList
+      if OUT:QidList := execInteractiveProof(CmdList) .
+    eq execAndCheckProof(CmdList) = error ('No 'goal 'proved) [owise] .
 
     vars M N I : Nat .
     var P : Pattern .
-    var ProofState : ProofState .
+    vars ProofState  ProofState' : ProofState .
     vars Pi1 Proof : CommentedProof .
     var PrStep : CommentedProofStep .
     vars WfId ClaimId : Id .
@@ -74,7 +84,7 @@ endm
 mod TEST is pr EXECUTE-PROOF + EXECUTE-PROOF-LEMMA .
 
     sort TestResult .
-    op FAILURE_ : [Bool] -> TestResult [ctor format (r on d)] .
+    op FAILURE_ : [Bool] -> TestResult [ctor format (y o d)] .
     op Success : -> TestResult [ctor format (g d)] .
 
     op _ should be _ : [Bool] Bool -> TestResult .
@@ -295,6 +305,32 @@ reduce execAndCheckProof(
 (axiom)
 ) should be true .
 
+*** Set Variable Substitution
+reduce execAndCheckProof(
+(begin proof of z --> z)
+(propI svar('X))
+(set variable substitution 'X P:Pattern z)
+(axiom)
+) should be true .
+
+*** Pre-fixpoint
+reduce execAndCheckProof(
+(begin proof of
+  ((z --> bot) --> succ @ (mu svar('X) . (z --> bot) --> succ @ svar('X)))
+  --> (mu svar('X) . (z --> bot) --> succ @ svar('X)))
+(pre fixpoint 'X succ @ svar('X) \/ z)
+(axiom)
+) should be true .
+
+*** Knaster-Tarski
+reduce execAndCheckProof(
+(begin proof of
+  (mu svar('Y) . svar('Y)) --> (z --> bot) --> succ @ svar('X))
+(propI succ @ svar('X) \/ z)
+(knaster tarski 'Y svar('Y) P:Pattern)
+(axiom)
+) should be true .
+
 *** Existence axiom (top)
 reduce execAndCheckProof(
 (begin proof of top)
@@ -322,4 +358,3 @@ reduce execAndCheckProof(
 (propI bot)
 (axiom)
 ) should be true .
-
