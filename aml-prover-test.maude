@@ -23,12 +23,17 @@ mod EXECUTE-PROOF is
 
     ceq $execInteractiveProof(Cmd CmdList, ProofState) =
         $execInteractiveProof(CmdList, rewriteProofState(ProofState'))
-      if < ProofState' # OUT:QidList > := applyCommand(Cmd, ProofState) .
+      if [ ProofState' # OUT:QidList ] := applyCommand(Cmd, ProofState) .
 
     ceq $execInteractiveProof(Cmd CmdList, ProofState) = OUT:QidList
       if OUT:QidList := applyCommand(Cmd, ProofState) .
 
-    op error_ : QidList ~> Bool [format (r o d)] .
+    op error_ : String ~> Bool [format (r o d)] .
+
+    op toString : NeQidList -> String .
+    var Q : Qid . var Qs : NeQidList .
+    eq toString(Q) = string(Q) .
+    eq toString(Q Qs) = string(Q) + " " + toString(Qs) .
 
     *** - Execute a list of proof commands
     *** - check if the proof ends with a proved goal
@@ -42,9 +47,9 @@ mod EXECUTE-PROOF is
       /\ ClaimId WfId Rl ; := stripComments(PrStep)
       /\ GM' ; [M (I): proved(P, WfId, ClaimId) ] ; GM'' := GM
       /\ B:[Bool] := check(Proof) .
-    ceq execAndCheckProof(CmdList) = error OUT:QidList
+    ceq execAndCheckProof(CmdList) = error toString(OUT:QidList)
       if OUT:QidList := execInteractiveProof(CmdList) .
-    eq execAndCheckProof(CmdList) = error ('No 'goal 'proved) [owise] .
+    eq execAndCheckProof(CmdList) = error "No goal proved" [owise] .
 
     vars M N I : Nat .
     var P : Pattern .
@@ -200,7 +205,7 @@ red check(
 reduce execAndCheckProof(
 (begin proof of ((bot --> bot) --> bot) --> bot)
 (propF bot)
-(axiom)
+(assert)
 ) should be true .
 
 *** SK calculus proof of tautology `_|_ -> _|_`
@@ -211,7 +216,7 @@ reduce execAndCheckProof(
 (propS bot (bot --> bot) bot)
 (modus ponens (bot --> (bot --> bot) --> bot) ((bot --> bot --> bot) --> bot --> bot))
 (modus ponens (bot --> bot --> bot) (bot --> bot))
-(axiom)
+(assert)
 ) should be true .
 
 *** SK calculus proof of tautology `_|_ -> _|_`
@@ -219,18 +224,18 @@ reduce execAndCheckProof(
 reduce execAndCheckProof(
 (begin proof of bot --> bot)
 (propK bot bot)
-(propK bot (bot --> bot))
-(propS bot (bot --> bot) bot)
+(propK bot bot --> bot)
+(propS bot bot --> bot bot)
 (modus ponens P:Pattern Q:Pattern)
 (modus ponens P:Pattern (bot --> bot))
-(axiom)
+(assert)
 ) should be true .
 
 reduce execAndCheckProof(
 (begin proof of bot --> bot)
 (propK bot bot)
 (modus ponens P:Pattern Q:Pattern)
-(axiom)
+(assert)
 ) should fail .
 
 *** Top quantification
@@ -239,7 +244,7 @@ reduce execAndCheckProof(
 (existence 'x)
 (existential quantifier 'y top)
 (modus ponens P:Pattern Q:Pattern)
-(ax)
+(assert)
 ) should be true .
 
 *** Generalization
@@ -247,7 +252,7 @@ reduce execAndCheckProof(
 (begin proof of (exists evar('x) . bot) --> bot)
 (propI bot)
 (existential generalization 'x P:Pattern P:Pattern)
-(axiom)
+(assert)
 ) should be true .
 
 *** Propagation
@@ -255,39 +260,39 @@ reduce execAndCheckProof(
 reduce execAndCheckProof(
 (begin proof of bot @ z --> bot)
 (left bot propagation z)
-(axiom)
+(assert)
 ) should be true .
 
 reduce execAndCheckProof(
 (begin proof of succ @ bot --> bot)
 (right bot propagation succ)
-(axiom)
+(assert)
 ) should be true .
 
   *** \/
 reduce execAndCheckProof(
 (begin proof of (succ \/ succ @ succ) @ z --> (succ @ z \/ succ @ succ @ z))
 (left or propagation z succ (succ @ succ))
-(axiom)
+(assert)
 ) should be true .
 
 reduce execAndCheckProof(
 (begin proof of succ @ (z \/ succ @ z) --> (succ @ z \/ succ @ (succ @ z)))
 (right or propagation succ z (succ @ z))
-(axiom)
+(assert)
 ) should be true .
 
   *** ∃
 reduce execAndCheckProof(
 (begin proof of (exists evar('x) . evar('x)) @ z --> (exists evar('x) . evar('x) @ z))
 (left existential propagation z evar('x) evar('x))
-(axiom)
+(assert)
 ) should be true .
 
 reduce execAndCheckProof(
 (begin proof of succ @ top --> (exists evar('x) . succ @ evar('x)))
 (right existential propagation succ evar('x) evar('x))
-(axiom)
+(assert)
 ) should be true .
 
 *** Framing
@@ -295,14 +300,14 @@ reduce execAndCheckProof(
 (begin proof of succ @ z --> succ @ z)
 (propI succ)
 (left framing z P:Pattern P:Pattern)
-(axiom)
+(assert)
 ) should be true .
 
 reduce execAndCheckProof(
 (begin proof of succ @ z --> succ @ z)
 (propI z)
 (right framing succ P:Pattern P:Pattern)
-(axiom)
+(assert)
 ) should be true .
 
 *** Set Variable Substitution
@@ -310,7 +315,7 @@ reduce execAndCheckProof(
 (begin proof of z --> z)
 (propI svar('X))
 (set variable substitution 'X P:Pattern z)
-(axiom)
+(assert)
 ) should be true .
 
 *** Pre-fixpoint
@@ -319,7 +324,7 @@ reduce execAndCheckProof(
   ((z --> bot) --> succ @ (mu svar('X) . (z --> bot) --> succ @ svar('X)))
   --> (mu svar('X) . (z --> bot) --> succ @ svar('X)))
 (pre fixpoint 'X succ @ svar('X) \/ z)
-(axiom)
+(assert)
 ) should be true .
 
 *** Knaster-Tarski
@@ -328,14 +333,14 @@ reduce execAndCheckProof(
   (mu svar('Y) . svar('Y)) --> (z --> bot) --> succ @ svar('X))
 (propI succ @ svar('X) \/ z)
 (knaster tarski 'Y svar('Y) P:Pattern)
-(axiom)
+(assert)
 ) should be true .
 
 *** Existence axiom (top)
 reduce execAndCheckProof(
 (begin proof of top)
 (existence 'x)
-(ax)
+(assert)
 ) should be true .
 
 *** Singleton
@@ -345,16 +350,7 @@ reduce execAndCheckProof(
     plus @ (bot --> bot) @ ((evar('x) --> z --> bot) --> bot)
         --> bot )
 (singleton succ @ [] plus @ (bot --> bot) @ [] 'x z --> bot)
-(axiom)
+(assert)
 ) should be true .
 
-********************************
-*** DERIVED PROOF RULE TESTS ***
-********************************
-
-*** identity lemma proof of tautology `_|_ -> _|_`
-reduce execAndCheckProof(
-(begin proof of bot --> bot)
-(propI bot)
-(axiom)
-) should be true .
+quit

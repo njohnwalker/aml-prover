@@ -89,11 +89,11 @@ fmod AML-MSA is including AML-DEFINEDNESS .
     eq $functionSort(N, F, P) = exists evar('y) .
       (mem(evar('y), inh @ P) /\ eq(applyXVars(F, N), evar('y))) .
     eq $functionSort(N, F, P PS) =
-        mem(evar(qid("x" + prettyString(N))), inh @ P) --> $functionSort(s N, F, PS) .
+        mem(evar(qid("x" + string(pretty(N)))), inh @ P) --> $functionSort(s N, F, PS) .
 
     op applyXVars : Symbol Nat -> Pattern .
     eq applyXVars(F, 0) = F .
-    eq applyXVars(F, s N) = applyXVars(F, N) @ evar(qid("x" + prettyString(N))) .
+    eq applyXVars(F, s N) = applyXVars(F, N) @ evar(qid("x" + string(pretty(N)))) .
 
     *** Sorted Quantification Sugar
     var V : Var .
