@@ -126,6 +126,15 @@ fmod AML-CORE is protecting VARIABLES + EXT-BOOL .
     *** condition on set variable fixpoints
     cmb mu X . P : Pattern if nonNegative(X, P) .
 
+    *** Application Contexts
+    sort ApplicationContext .
+    op [] : -> ApplicationContext [ctor] .
+    op _@_ : Pattern ApplicationContext -> ApplicationContext
+          [ctor prec 40  gather (E e) format (d s ++s --)] .
+    op _@_ : ApplicationContext Pattern -> ApplicationContext
+          [ctor prec 40  gather (E e) format (d s ++s --)] .
+
+    *** Predicates
     op nonNegative : SVar Pattern -> Bool .
     eq nonNegative(X,P) = $nonNegative(true, X, P) .
 
@@ -140,28 +149,20 @@ fmod AML-CORE is protecting VARIABLES + EXT-BOOL .
     eq $nonNegative(B, X, mu X . P) = true .
     eq $nonNegative(B, X, mu X' . P) = $nonNegative(B, X, P) .
 
-    *** Free Variable Predicate
-    op isFreeIn : Var Pattern -> Bool .
-    eq isFreeIn(V, bot) = false .
-    eq isFreeIn(V, V') = V == V' .
-    eq isFreeIn(V, S) = false .
-    eq isFreeIn(V, P @ Q) = isFreeIn(V, P) or-else isFreeIn(V, Q) .
-    eq isFreeIn(V, P --> Q) = isFreeIn(V, P) or-else isFreeIn(V, Q) .
-    eq isFreeIn(V, exists V . P) = false .
-    eq isFreeIn(V, exists V' . P) = isFreeIn(V, P) .
-    eq isFreeIn(V, mu V . P) = false .
-    eq isFreeIn(V, mu V' . P) = isFreeIn(V, P) .
-
     var B : Bool .
     vars X X' : SVar .
-    vars V V' : Var .
+    vars V : Var .
     var S : Symbol .
     vars P Q : Pattern .
 endfm
 
-fmod AML is including AML-CORE .
-*** Add syntactic sugar and variable substitution
+fmod AML is protecting AML-CORE .
+*** Add syntactic sugar and substitution
 *** to AML core representation
+
+*********************
+*** Pattern Sugar ***
+*********************
 
     *** Top
     op top : -> Pattern .
@@ -174,8 +175,7 @@ fmod AML is including AML-CORE .
     *** Or, And
     ops _\/_ _/\_ : Pattern Pattern -> Pattern [assoc comm] .
     eq P \/ Q = (~ P) --> Q .
-    eq P /\ Q = ~((~ P) \/ (~ Q)) .
-
+    eq P /\ Q = ~ (P --> ~ Q) .
 
     *** If-and-only-if
     op _<-->_ : Pattern Pattern -> Pattern [assoc comm] .
@@ -186,31 +186,43 @@ fmod AML is including AML-CORE .
     eq forall x . P = ~ (exists x . ~ P ) .
 
     *** greatest fixpoint
-    op nu_._ : EVar Pattern ~> Pattern .
+    op nu_._ : SVar Pattern -> Pattern .
     eq nu X . P = ~ (mu X . ~ (P[~ X / X])) .
 
-    ********************
-    *** Substitution ***
+********************
+*** Substitution ***
+********************
+
+    *** Pattern Substitution
     op _[_/_] : Pattern Pattern Var ~> Pattern [prec 39].
 
     *** Alpha capture substitution side-condition
-    op alphaCapture : -> [Pattern] .
-    ceq P [Psub / V] = alphaCapture if alphaCaptures(V, P, Psub) .
+    ceq P [Psub / V] =  $ P [Psub / V]
+      if not alphaCaptures(V, P, Psub) .
 
-    eq bot[Psub / V] = bot .
-    eq S[Psub / V] = S .
-    eq V[Psub / V] = Psub .
-    eq V'[Psub / V] = V' .
+    *** non-capture avoiding Pattern substitution
+    op $_[_/_] : Pattern Pattern Var -> Pattern .
+    eq $ bot [Psub / V] = bot .
+    eq $ S [Psub / V] = S .
+    eq $ V [Psub / V] = Psub .
+    eq $ V' [Psub / V] = V' .
 
-    eq (P @ P')[Psub / V] = (P[Psub / V]) @ (P'[Psub / V]) .
+    eq $ (P @ Q) [Psub / V] = ($ P[Psub / V]) @ ($ Q[Psub / V]) .
 
-    eq (P --> P')[Psub / V] = P[Psub / V] --> (P'[Psub / V]) .
+    eq $ (P --> Q)[Psub / V] = $ P[Psub / V] --> ($ Q[Psub / V]) .
 
-    eq (exists V . P)[Psub / V] = exists V . P .
-    eq (exists V' . P)[Psub / V] = exists V' . (P[Psub  / V]) .
+    eq $ (exists V . P)[Psub / V] = exists V . P .
+    eq $ (exists V' . P)[Psub / V] = exists V' . ($ P[Psub  / V]) .
 
-    eq (mu V . P)[Psub / V] = mu V . P .
-    eq (mu V' . P)[Psub / V] = mu V' . (P[Psub  / V]) .
+    eq $ (mu V . P)[Psub / V] = mu V . P .
+    eq $ (mu V' . P)[Psub / V] = mu V' . ($ P[Psub  / V]) .
+
+    *** Application Context Substitution
+    op _[_] : ApplicationContext Pattern -> Pattern .
+    eq [] [Psub] = Psub .
+    eq Ctx @ Q [Psub] = (Ctx[Psub]) @ Q .
+    eq P @ Ctx [Psub] = P @ (Ctx[Psub]) .
+
 
     op alphaCaptures : Var Pattern Pattern -> Bool .
     eq alphaCaptures(V, P, Psub) = $alphaCaptures(false, V, P, Psub) .
@@ -224,11 +236,11 @@ fmod AML is including AML-CORE .
 
     eq $alphaCaptures(B, V, S, Psub) = false .
 
-    eq $alphaCaptures(B, V, P @ P', Psub) =
-        $alphaCaptures(B, V, P, Psub) and-then $alphaCaptures(B, V, P', Psub) .
+    eq $alphaCaptures(B, V, P @ Q, Psub) =
+        $alphaCaptures(B, V, P, Psub) or-else $alphaCaptures(B, V, Q, Psub) .
 
-    eq $alphaCaptures(B, V, P --> P', Psub) =
-        $alphaCaptures(B, V, P, Psub) and-then $alphaCaptures(B, V, P', Psub) .
+    eq $alphaCaptures(B, V, P --> Q, Psub) =
+        $alphaCaptures(B, V, P, Psub) or-else $alphaCaptures(B, V, Q, Psub) .
 
     eq $alphaCaptures(B, V, exists V . P, Psub) = false .
     eq $alphaCaptures(B, V, exists V' . P, Psub) =
@@ -238,25 +250,24 @@ fmod AML is including AML-CORE .
     eq $alphaCaptures(B, V, mu V' . P, Psub) =
         $alphaCaptures(B or-else isFreeIn(V', Psub), V, P, Psub) .
 
-    *** Application Contexts
-    sort ApplicationContext .
-    op [] : -> ApplicationContext [ctor] .
-    op _@_ : Pattern ApplicationContext -> ApplicationContext
-          [ctor prec 40  gather (E e) format (d s ++s --)] .
-    op _@_ : ApplicationContext Pattern -> ApplicationContext
-          [ctor prec 40  gather (E e) format (d s ++s --)] .
-
-    op _[_] : ApplicationContext Pattern -> Pattern .
-    eq [] [Psub] = Psub .
-    eq Ctx @ P [Psub] = (Ctx[Psub]) @ P .
-    eq P @ Ctx [Psub] = P @ (Ctx[Psub]) .
+    *** Free Variable Predicate
+    op isFreeIn : Var Pattern -> Bool .
+    eq isFreeIn(V, bot) = false .
+    eq isFreeIn(V, V') = V == V' .
+    eq isFreeIn(V, S) = false .
+    eq isFreeIn(V, P @ Q) = isFreeIn(V, P) or-else isFreeIn(V, Q) .
+    eq isFreeIn(V, P --> Q) = isFreeIn(V, P) or-else isFreeIn(V, Q) .
+    eq isFreeIn(V, exists V . P) = false .
+    eq isFreeIn(V, exists V' . P) = isFreeIn(V, P) .
+    eq isFreeIn(V, mu V . P) = false .
+    eq isFreeIn(V, mu V' . P) = isFreeIn(V, P) .
 
     var B : Bool .
     var x : EVar .
-    vars X X' : SVar .
+    vars X : SVar .
     vars V V' : Var .
     var S : Symbol .
-    vars P P' Q Psub : Pattern .
+    vars P Q Psub : Pattern .
     var Ctx : ApplicationContext .
 endfm
 
@@ -884,9 +895,7 @@ mod AML-PROVER-COMMANDS is protecting AML-PROOF-LEMMAS + SUBSTITUTION .
     op check`proof : -> ProverCMD .
     eq check proof = cp .
 
-    op dp : -> ProverCMD [ctor] .
-    op dump`proof : -> ProverCMD .
-    eq dump proof = dp .
+    op dump`proof : -> ProverCMD [ctor] .
 
 *******************************
 *** AML Proof Rule Commands ***
@@ -925,7 +934,7 @@ mod AML-PROVER-COMMANDS is protecting AML-PROOF-LEMMAS + SUBSTITUTION .
     *** ----------------------
     ***  Γ, P, P -> Q, Q |- Δ
     op mp__ : Pattern Pattern -> ProverCMD [ctor] .
-    op modus`ponens__ : Pattern Pattern -> ProverCMD [ctor] .
+    op modus`ponens__ : Pattern Pattern -> ProverCMD .
     eq modus ponens P Q  = mp P Q .
 
     *** ∃ - Quantifier:
@@ -940,8 +949,8 @@ mod AML-PROVER-COMMANDS is protecting AML-PROOF-LEMMAS + SUBSTITUTION .
     ***  Γ, P -> Q |- Δ
     *** ---------------------- [ if not (x ∈ FV(Q)) ]
     ***  Γ, ∃ x . P -> Q |- Δ
-    op eg___ : Qid Pattern Pattern -> ProverCMD [ctor] .
-    op existential`generalization___ : Qid Pattern Pattern -> ProverCMD .
+    op eg___ : Qid Pattern Pattern -> PatternProverCMD [ctor] .
+    op existential`generalization___ : Qid Pattern Pattern -> PatternProverCMD .
     eq existential generalization Q:Qid P Q = eg Q:Qid P Q .
 
     *** Propagation-_|_
@@ -1081,6 +1090,18 @@ mod AML-PROVER-COMMANDS is protecting AML-PROOF-LEMMAS + SUBSTITUTION .
     *** Print Goals
     eq applyCommand(pgs, goals(GM) ^ ProofState) = pretty(GM) .
 
+    *** Print current goal
+    eq applyCommand(pg, goals([0 (I): G] ; GM) ^ ProofState) =
+        metaPrettyPrint(['PRINT-AML-GOAL], upTerm(G))  .
+
+    ceq applyCommand(sg N, goals(GM) ^ ProofState) =
+        goals([0 (GI1): G'] ; GM1 ; [N (GI2): G] ; GM2) ^ ProofState
+      if [0 (GI2): G] ; GM1 ; [N (GI1): G'] ; GM2 := GM .
+
+    eq applyCommand(sg N, goals(GM) ^ ProofState) =
+        'Switch 'goal 'failed '\n
+        'Index 'out 'bounds [owise] .
+
     *** Check Proof
     ceq applyCommand(cp, hilbertProof(Proof) ^ ProofState) =
         'Invalid 'Proof 'Index
@@ -1098,11 +1119,8 @@ mod AML-PROVER-COMMANDS is protecting AML-PROOF-LEMMAS + SUBSTITUTION .
         metaPrettyPrint(['AML-CHECKER], upTerm(CommentedProof)) .
 
     *** Print proof and start over
-    eq applyCommand(dp, hilbertProof(CommentedProof) ^ ProofState) =
+    eq applyCommand(dump proof, hilbertProof(CommentedProof) ^ ProofState) =
         [ .ProofState # metaPrettyPrint(['AML-CHECKER], upTerm(CommentedProof)) ] .
-
-    eq applyCommand(pg, goals([0 (I): G] ; GM) ^ ProofState) =
-        metaPrettyPrint(['PRINT-AML-GOAL], upTerm(G))  .
 
 ***********************
 *** AML Proof Rules ***
@@ -1407,7 +1425,7 @@ mod AML-PROVER-COMMANDS is protecting AML-PROOF-LEMMAS + SUBSTITUTION .
              'this 'is 'a 'bug.
       fi .
 
-    vars N M I I2 WfI HypWfI AntWfI GIndex GI : Nat .
+    vars N M I I2 WfI HypWfI AntWfI GIndex GI GI1 GI2 : Nat .
     vars Id PId QId RId XId FVId WfId CId1 CId2 ResId1 ResId2 : Id .
     vars NFId ACId1 ACId2 SubId SubId1 SubId2
     vars ClaimId AntClaimId HypClaimId : Id .
@@ -1418,7 +1436,7 @@ mod AML-PROVER-COMMANDS is protecting AML-PROOF-LEMMAS + SUBSTITUTION .
     var Hypotheses : PatternList .
     vars AM AM1 AM2 AM3 : AntecedentMap .
     vars CM CM1 CM2 : ConsequentMap .
-    var G : Goal .
+    vars G G' : Goal .
     vars GM GM1 GM2 : GoalMap .
     var Rule : AMLRule .
     vars Proof Proof' CommentedProof : CommentedProof .
@@ -1479,16 +1497,6 @@ mod AML-PROVER is
           Term '\n ]
       if QIN =/= nil
       /\ ambiguity({Term, Type}, T) := metaParse(['AML-PROVER-COMMANDS], QIN, 'ProverCMD ) .
-
-    crl [proved] :
-        [QIN # S ^ goals(mt) # QOUT]
-      =>
-        [QIN # S' #
-          QOUT'' '\n
-          'All 'proof 'goals 'discharged '\n
-          QOUT']
-      if QOUT' := applyCommand(cp, S ^ goals(mt))
-      /\ [ S' # QOUT'' ] := applyCommand(dp, S ^ goals(mt)) .
 
     crl [emptyProofState] :
         [ QIN # S # QOUT ] => [nil # S #
